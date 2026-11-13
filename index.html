@@ -47,9 +47,10 @@
     <div><label>Pausa entre teclas</label><input type="number" id="p1" min="0" max="30"></div>
   </div>
   <div class="row">
-    <div><label>Dígitos decimais (vermelhos)</label><input type="number" id="dec" min="0" max="4"></div>
-    <div><label>Sufixo no fim (ex.: #)</label><input type="text" id="suf" placeholder="vazio"></div>
+    <div><label>Dígitos pretos (m³)</label><input type="number" id="blk" min="1" max="8"></div>
+    <div><label>Dígitos vermelhos</label><input type="number" id="dec" min="0" max="4"></div>
   </div>
+  <label>Sufixo no fim (ex.: #)</label><input type="text" id="suf" placeholder="vazio">
   <p class="hint">Cada vírgula = pausa de ~2 s no marcador. Aumenta se o menu dos SMAS for lento.</p>
   <button id="save" style="margin-top:10px">Guardar</button>
 </section>
@@ -60,9 +61,10 @@
   <button id="take">📷 Tirar foto ao contador</button>
   <div id="cropWrap" class="hide" style="margin-top:12px">
     <canvas id="cv"></canvas>
-    <p class="hint">Arrasta no ecrã para desenhar um rectângulo à volta dos <b>dígitos pretos</b> (podes incluir os vermelhos, se quiseres).</p>
+    <p class="hint">Arrasta para desenhar um rectângulo <b>justo à volta de todos os dígitos</b> (pretos e vermelhos, só a janela do mostrador). A app separa os pretos dos vermelhos sozinha.</p>
     <button id="ocr" class="sec" style="margin-top:8px">🔍 Ler dígitos</button>
     <div id="status"></div>
+    <div id="prev" style="display:flex;gap:8px;margin-top:8px"></div>
   </div>
 </section>
 
@@ -87,7 +89,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js"></script>
 <script>
 const $=id=>document.getElementById(id);
-const DEF={phone:'',opt:'',ref:'',p0:3,p1:2,dec:2,suf:''};
+const DEF={phone:'',opt:'',ref:'',p0:3,p1:2,blk:4,dec:2,suf:''};
 let S={...DEF};
 try{S={...DEF,...JSON.parse(localStorage.getItem('contadorCfg')||'{}')}}catch(e){}
 function loadCfg(){for(const k in DEF)$(k).value=S[k]}
@@ -161,31 +163,73 @@ cv.addEventListener('pointermove',e=>{if(!drag)return;const p=pos(e);
   rect={x:Math.min(drag.x,p.x),y:Math.min(drag.y,p.y),w:Math.abs(p.x-drag.x),h:Math.abs(p.y-drag.y)};draw()});
 cv.addEventListener('pointerup',()=>{drag=null});
 
-/* ---------- OCR ---------- */
+/* ---------- OCR (pretos e vermelhos em separado) ---------- */
 let worker=null;
+function otsu(g){const h=new Array(256).fill(0);for(const v of g)h[v|0]++;
+  const tot=g.length;let sum=0;for(let i=0;i<256;i++)sum+=i*h[i];
+  let sb=0,wb=0,best=0,th=128;
+  for(let i=0;i<256;i++){wb+=h[i];if(!wb)continue;const wf=tot-wb;if(!wf)break;sb+=i*h[i];
+    const mb=sb/wb,mf=(sum-sb)/wf,v=wb*wf*(mb-mf)*(mb-mf);if(v>best){best=v;th=i}}
+  return th}
+// mode: 'k' = cinzento normal; 'g' = canal verde; 'gi' = canal verde invertido
+function prep(sx,sy,sw,sh,mode){
+  const sc=Math.min(6,Math.max(1.5,420/Math.max(1,sh)));
+  const w=Math.round(sw*sc),h=Math.round(sh*sc),m=24;
+  const t=document.createElement('canvas');t.width=w+2*m;t.height=h+2*m;
+  const tc=t.getContext('2d');tc.fillStyle='#fff';tc.fillRect(0,0,t.width,t.height);
+  tc.drawImage(bmp,sx,sy,sw,sh,m,m,w,h);
+  const im=tc.getImageData(0,0,t.width,t.height),d=im.data,n=d.length/4,g=new Float32Array(n);
+  for(let i=0;i<n;i++){
+    const r=d[i*4],gg=d[i*4+1],b=d[i*4+2];
+    g[i]=mode==='g'?gg:mode==='gi'?255-gg:(.3*r+.59*gg+.11*b);
+  }
+  // esticar contraste (percentis 2–98)
+  const sorted=Float32Array.from(g).sort(),lo=sorted[Math.floor(n*.02)],hi=sorted[Math.floor(n*.98)],k=255/Math.max(1,hi-lo);
+  for(let i=0;i<n;i++)g[i]=Math.max(0,Math.min(255,(g[i]-lo)*k));
+  const th=otsu(g);
+  for(let i=0;i<n;i++){const v=g[i]>th?255:0;d[i*4]=d[i*4+1]=d[i*4+2]=v;d[i*4+3]=255}
+  tc.putImageData(im,0,0);return t;
+}
+async function recog(c){
+  const o=await worker.recognize(c);
+  return{txt:(o.data.text||'').replace(/\D/g,''),conf:o.data.confidence||0};
+}
 $('ocr').onclick=async()=>{
   if(!bmp)return;
   if(typeof Tesseract==='undefined'){$('status').textContent='OCR indisponível (sem ligação à internet). Escreve a leitura à mão.';return}
   const r=(rect&&rect.w>20&&rect.h>10)?rect:{x:0,y:0,w:cv.width,h:cv.height};
-  // pré-processamento: recorte, ampliação, cinzento, contraste
-  const scale=Math.min(4,Math.max(1,900/r.w));
-  const t=document.createElement('canvas');t.width=Math.round(r.w*scale);t.height=Math.round(r.h*scale);
-  const tc=t.getContext('2d');tc.drawImage(bmp,r.x,r.y,r.w,r.h,0,0,t.width,t.height);
-  const im=tc.getImageData(0,0,t.width,t.height),d=im.data;let mn=255,mx=0;
-  for(let i=0;i<d.length;i+=4){const g=.3*d[i]+.59*d[i+1]+.11*d[i+2];d[i]=d[i+1]=d[i+2]=g;if(g<mn)mn=g;if(g>mx)mx=g}
-  const k=255/Math.max(1,mx-mn);
-  for(let i=0;i<d.length;i+=4){const v=Math.max(0,Math.min(255,(d[i]-mn)*k));d[i]=d[i+1]=d[i+2]=v}
-  tc.putImageData(im,0,0);
+  readCfg();
+  const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec),tot=blk+dec;
+  const wBlk=r.w*blk/tot;
   $('ocr').disabled=true;$('status').textContent='A ler… (a primeira vez descarrega o modelo)';
   try{
     if(!worker){worker=await Tesseract.createWorker('eng');
       await worker.setParameters({tessedit_char_whitelist:'0123456789',tessedit_pageseg_mode:'7'})}
-    const out=await worker.recognize(t);
-    const digits=(out.data.text||'').replace(/\D/g,'');
-    if(digits){
-      $('val').value=digits;
-      $('status').textContent='Lido: '+digits+' — confirma/corrige abaixo. Os dígitos pretos são o m³; os vermelhos os decimais.';
-    }else $('status').textContent='Não consegui ler. Tenta recortar mais junto aos dígitos ou escreve à mão.';
+    // pretos
+    const cK=prep(r.x,r.y,wBlk,r.h,'k');
+    const rk=await recog(cK);
+    // vermelhos: tenta as duas polaridades do canal verde e fica com a mais confiante
+    let rr={txt:'',conf:0},cR=null;
+    if(dec>0){
+      const rx=r.x+wBlk,rw=r.w-wBlk;
+      for(const mode of ['gi','g']){
+        const c=prep(rx,r.y,rw,r.h,mode);const x=await recog(c);
+        if(!cR||(x.txt.length>=rr.txt.length&&x.conf>rr.conf)||(x.txt.length>rr.txt.length)){rr=x;cR=c}
+      }
+    }
+    // pré-visualização do que o OCR viu
+    $('prev').innerHTML='';
+    for(const c of [cK,cR]){if(!c)continue;const cc=document.createElement('canvas');cc.width=c.width;cc.height=c.height;
+      cc.getContext('2d').drawImage(c,0,0);cc.style.cssText='height:46px;width:auto;border:1px solid #ccc;border-radius:4px';$('prev').appendChild(cc)}
+    const kk=rk.txt,red=rr.txt;
+    if(!kk&&!red){$('status').textContent='Não consegui ler. Recorta mais justo à volta dos dígitos ou escreve à mão.'}
+    else{
+      $('val').value=kk+(dec?','+red:'');
+      let msg='Pretos: '+(kk||'?')+(dec?' · Vermelhos: '+(red||'?'):'');
+      if(kk.length!==blk||(dec&&red.length!==dec))msg+=' — ⚠️ esperava '+blk+' + '+dec+' dígitos, confirma com o contador.';
+      else msg+=' — confirma abaixo.';
+      $('status').textContent=msg;
+    }
     update();$('val').scrollIntoView({behavior:'smooth',block:'center'});
   }catch(err){$('status').textContent='Erro no OCR: '+err.message}
   $('ocr').disabled=false;
