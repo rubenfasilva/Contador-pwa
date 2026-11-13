@@ -58,7 +58,10 @@
 <section class="card">
   <h2>1 · Foto</h2>
   <input type="file" id="file" accept="image/*" capture="environment" class="hide">
-  <button id="take">📷 Tirar foto ao contador</button>
+  <input type="file" id="file2" accept="image/*" class="hide">
+  <button id="take2">📷 Tirar foto com a câmara do telemóvel</button>
+  <button id="take" class="sec" style="margin-top:8px">Câmara rápida (modo simples)</button>
+  <p class="hint">Recomendado: o 1.º botão deixa escolher a app Câmara normal (toque para focar, zoom, macro) ou uma foto da galeria. Fica a ~20 cm, toca no mostrador para focar e evita o reflexo do vidro.</p>
   <div id="cropWrap" class="hide" style="margin-top:12px">
     <canvas id="cv"></canvas>
     <p class="hint">Arrasta para desenhar um rectângulo <b>justo à volta de todos os dígitos</b> (pretos e vermelhos, só a janela do mostrador). A app separa os pretos dos vermelhos sozinha.</p>
@@ -137,14 +140,16 @@ update();
 const cv=$('cv'),ctx=cv.getContext('2d');
 let bmp=null,rect=null,drag=null;
 $('take').onclick=()=>$('file').click();
-$('file').onchange=async e=>{
+$('take2').onclick=()=>$('file2').click();
+async function onPhoto(e){
   const f=e.target.files[0];if(!f)return;
   try{bmp=await createImageBitmap(f,{imageOrientation:'from-image'})}catch(err){
     bmp=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(f)})}
   const w=bmp.width,h=bmp.height;cv.width=w;cv.height=h;
   rect=null;draw();$('cropWrap').classList.remove('hide');$('status').textContent='';
   cv.scrollIntoView({behavior:'smooth',block:'center'});
-};
+}
+$('file').onchange=onPhoto;$('file2').onchange=onPhoto;
 function draw(){
   ctx.drawImage(bmp,0,0);
   if(rect){
