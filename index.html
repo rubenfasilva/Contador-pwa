@@ -76,7 +76,12 @@
 
   .seq{padding:12px 14px;border-radius:8px;background:var(--paper);border:1.5px solid var(--line);font-weight:500;font-size:17px;letter-spacing:.04em;word-break:break-all;font-variant-numeric:tabular-nums}
   .seq+.btn{margin-top:14px}
-  .hide{display:none}
+  .cam{position:relative;margin-top:14px;border-radius:10px;overflow:hidden;background:#111;line-height:0}
+  .cam video{width:100%;height:auto;display:block}
+  .guide{position:absolute;left:10%;width:80%;aspect-ratio:4/1;top:50%;transform:translateY(-50%);border:3px solid #00e676;border-radius:6px;box-shadow:0 0 0 2000px rgba(0,0,0,.4)}
+  input[type=range]{width:100%;height:44px;accent-color:var(--pipe)}
+  .row .btn+.btn{margin-top:0}
+  .hide{display:none!important}
 </style>
 </head>
 <body>
@@ -113,12 +118,22 @@
   <h2>Fotografar o contador</h2>
   <input type="file" id="file" accept="image/*" capture="environment" class="hide">
   <input type="file" id="file2" accept="image/*" class="hide">
-  <button class="btn" id="take2" type="button">Abrir a câmara do telemóvel</button>
-  <button class="btn ghost" id="take" type="button">Usar a câmara rápida</button>
-  <p class="note">A câmara do telemóvel foca melhor. Fica a uns 20 cm, toca no mostrador para focar e foge ao reflexo do vidro.</p>
+  <button class="btn" id="live" type="button">Abrir a câmara</button>
+  <button class="btn ghost" id="take2" type="button">Escolher foto da galeria</button>
+  <p class="note" id="camNote">Afasta o telemóvel uns 30 cm e aproxima com o zoom: assim a câmara foca melhor. Foge ao reflexo do vidro.</p>
+  <div id="camWrap" class="hide">
+    <div class="cam"><video id="vid" playsinline muted autoplay></video><div class="guide"></div></div>
+    <p class="note">Põe os dígitos, pretos e vermelhos, dentro da moldura.</p>
+    <div id="zoomRow" class="hide"><label for="zoom">Zoom</label><input type="range" id="zoom"></div>
+    <button class="btn" id="shoot" type="button" style="margin-top:12px">Tirar foto</button>
+    <div class="row" style="margin-top:10px">
+      <button class="btn ghost hide" id="torch" type="button" aria-pressed="false">Ligar a luz</button>
+      <button class="btn ghost" id="camClose" type="button" style="margin-top:0">Fechar a câmara</button>
+    </div>
+  </div>
   <div id="cropWrap" class="hide">
     <canvas id="cv"></canvas>
-    <p class="note">Arrasta um rectângulo justo à volta de todos os dígitos, pretos e vermelhos.</p>
+    <p class="note">O rectângulo verde tem de ficar justo à volta de todos os dígitos, pretos e vermelhos. Arrasta na foto para o redesenhar.</p>
     <button class="btn" id="ocr" type="button" style="margin-top:12px">Ler dígitos</button>
     <p class="note" id="status" role="status"></p>
     <div id="prev"></div>
@@ -205,16 +220,58 @@ update();
 /* ---------- photo + crop ---------- */
 const cv=$('cv'),ctx=cv.getContext('2d');
 let bmp=null,rect=null,drag=null;
-$('take').onclick=()=>$('file').click();
 $('take2').onclick=()=>$('file2').click();
-async function onPhoto(e){
-  const f=e.target.files[0];if(!f)return;
-  try{bmp=await createImageBitmap(f,{imageOrientation:'from-image'})}catch(err){
-    bmp=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(f)})}
-  const w=bmp.width,h=bmp.height;cv.width=w;cv.height=h;
-  rect=null;draw();$('cropWrap').classList.remove('hide');$('status').textContent='';
+function showPhoto(src,w,h,r){
+  bmp=src;cv.width=w;cv.height=h;rect=r||null;draw();
+  $('cropWrap').classList.remove('hide');$('status').textContent='';$('prev').innerHTML='';
   cv.scrollIntoView({behavior:'smooth',block:'center'});
 }
+async function onPhoto(e){
+  const f=e.target.files[0];if(!f)return;let b;
+  try{b=await createImageBitmap(f,{imageOrientation:'from-image'})}catch(err){
+    b=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(f)})}
+  showPhoto(b,b.width,b.height,null);e.target.value='';
+}
+
+/* ---------- câmara dentro da app ---------- */
+let stream=null,track=null,torchOn=false;
+function stopCam(){if(stream)stream.getTracks().forEach(t=>t.stop());stream=track=null;torchOn=false;$('camWrap').classList.add('hide')}
+$('camClose').onclick=stopCam;
+$('live').onclick=async()=>{
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){$('file').click();return}
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:2560},height:{ideal:1440}}});
+  }catch(err){
+    $('camNote').textContent=err&&err.name==='NotAllowedError'?'A app não tem permissão para a câmara. Autoriza-a nas definições do site ou escolhe uma foto da galeria.':'Não foi possível abrir a câmara aqui. Abriu-se a câmara simples em alternativa.';
+    if(!(err&&err.name==='NotAllowedError'))$('file').click();
+    return;
+  }
+  track=stream.getVideoTracks()[0];
+  const v=$('vid');v.srcObject=stream;$('camWrap').classList.remove('hide');$('cropWrap').classList.add('hide');
+  try{await v.play()}catch(e){}
+  let caps={};try{caps=track.getCapabilities?track.getCapabilities():{}}catch(e){}
+  try{if(caps.focusMode&&caps.focusMode.includes('continuous'))await track.applyConstraints({advanced:[{focusMode:'continuous'}]})}catch(e){}
+  const z=$('zoom');
+  if(caps.zoom&&caps.zoom.max>caps.zoom.min){
+    z.min=caps.zoom.min;z.max=Math.min(caps.zoom.max,6);z.step=caps.zoom.step||.1;
+    z.value=Math.min(2,z.max);$('zoomRow').classList.remove('hide');
+    const setZ=()=>track&&track.applyConstraints({advanced:[{zoom:parseFloat(z.value)}]}).catch(()=>{});
+    z.oninput=setZ;setZ();
+  }else $('zoomRow').classList.add('hide');
+  const tb=$('torch');
+  if(caps.torch){tb.classList.remove('hide');tb.textContent='Ligar a luz';tb.setAttribute('aria-pressed','false');
+    tb.onclick=async()=>{try{torchOn=!torchOn;await track.applyConstraints({advanced:[{torch:torchOn}]});
+      tb.textContent=torchOn?'Desligar a luz':'Ligar a luz';tb.setAttribute('aria-pressed',String(torchOn))}catch(e){torchOn=false}};
+  }else tb.classList.add('hide');
+  $('camWrap').scrollIntoView({behavior:'smooth',block:'start'});
+};
+$('shoot').onclick=()=>{
+  const v=$('vid'),w=v.videoWidth,h=v.videoHeight;if(!w||!h)return;
+  const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(v,0,0,w,h);
+  stopCam();
+  const gh=.8*w/4;
+  showPhoto(c,w,h,{x:.1*w,y:(h-gh)/2,w:.8*w,h:gh});
+};
 $('file').onchange=onPhoto;$('file2').onchange=onPhoto;
 function draw(){
   ctx.drawImage(bmp,0,0);
