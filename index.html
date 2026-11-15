@@ -296,29 +296,15 @@ cv.addEventListener('pointerup',()=>{drag=null});
 
 /* ---------- OCR (pretos e vermelhos em separado) ---------- */
 let worker=null;
-function otsu(g){const h=new Array(256).fill(0);for(const v of g)h[v|0]++;
-  const tot=g.length;let sum=0;for(let i=0;i<256;i++)sum+=i*h[i];
-  let sb=0,wb=0,best=0,th=128;
-  for(let i=0;i<256;i++){wb+=h[i];if(!wb)continue;const wf=tot-wb;if(!wf)break;sb+=i*h[i];
-    const mb=sb/wb,mf=(sum-sb)/wf,v=wb*wf*(mb-mf)*(mb-mf);if(v>best){best=v;th=i}}
-  return th}
-// mode: 'k' = cinzento normal; 'g' = canal verde; 'gi' = canal verde invertido
-function prep(src,sx,sy,sw,sh,mode,tH){
-  const sc=Math.min(6,Math.max(.25,(tH||420)/Math.max(1,sh)));
-  const w=Math.round(sw*sc),h=Math.round(sh*sc),m=24;
-  const t=document.createElement('canvas');t.width=w+2*m;t.height=h+2*m;
-  const tc=t.getContext('2d');tc.fillStyle='#fff';tc.fillRect(0,0,t.width,t.height);
-  tc.drawImage(src,sx,sy,sw,sh,m,m,w,h);
-  const im=tc.getImageData(0,0,t.width,t.height),d=im.data,n=d.length/4,g=new Float32Array(n);
-  for(let i=0;i<n;i++){
-    const r=d[i*4],gg=d[i*4+1],b=d[i*4+2];
-    g[i]=mode==='g'?gg:mode==='gi'?255-gg:mode==='ki'?255-(.3*r+.59*gg+.11*b):(.3*r+.59*gg+.11*b);
-  }
-  // esticar contraste (percentis 2–98)
-  const sorted=Float32Array.from(g).sort(),lo=sorted[Math.floor(n*.02)],hi=sorted[Math.floor(n*.98)],k=255/Math.max(1,hi-lo);
-  for(let i=0;i<n;i++)g[i]=Math.max(0,Math.min(255,(g[i]-lo)*k));
-  const th=otsu(g);
-  for(let i=0;i<n;i++){const v=g[i]>th?255:0;d[i*4]=d[i*4+1]=d[i*4+2]=v;d[i*4+3]=255}
+// tratamento da v1 (a única que leu no telemóvel): cinzento com contraste esticado, sem binarizar
+function prepLine(src,r){
+  const sc=Math.min(4,Math.max(1,900/r.w));
+  const t=document.createElement('canvas');t.width=Math.round(r.w*sc);t.height=Math.round(r.h*sc);
+  const tc=t.getContext('2d');tc.drawImage(src,r.x,r.y,r.w,r.h,0,0,t.width,t.height);
+  const im=tc.getImageData(0,0,t.width,t.height),d=im.data;let mn=255,mx=0;
+  for(let i=0;i<d.length;i+=4){const g=.3*d[i]+.59*d[i+1]+.11*d[i+2];d[i]=d[i+1]=d[i+2]=g;if(g<mn)mn=g;if(g>mx)mx=g}
+  const k=255/Math.max(1,mx-mn);
+  for(let i=0;i<d.length;i+=4){const v=Math.max(0,Math.min(255,(d[i]-mn)*k));d[i]=d[i+1]=d[i+2]=v}
   tc.putImageData(im,0,0);return t;
 }
 async function recog(c){
@@ -331,24 +317,12 @@ async function ensureWorker(){
     await worker.setParameters({tessedit_char_whitelist:'0123456789',tessedit_pageseg_mode:'7'})}
   return true;
 }
-// lê uma zona: pretos à esquerda, vermelhos à direita
-async function readRegion(src,r,th){
-  const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec),wBlk=r.w*blk/(blk+dec);
-  // pretos: tenta as duas polaridades (dígitos brancos em rolo preto)
-  let rk={txt:'',conf:0},cK=null;
-  for(const mode of ['ki','k']){
-    const c=prep(src,r.x,r.y,wBlk,r.h,mode,th);const x=await recog(c);
-    const ok=x.txt.length===blk,okB=rk.txt.length===blk;
-    if(!cK||(ok&&!okB)||(ok===okB&&x.conf>rk.conf)){rk=x;cK=c}
-  }
-  let rr={txt:'',conf:0},cR=null;
-  if(dec>0){
-    for(const mode of ['gi','g']){
-      const c=prep(src,r.x+wBlk,r.y,r.w-wBlk,r.h,mode,th);const x=await recog(c);
-      if(!cR||(x.txt.length>=rr.txt.length&&x.conf>rr.conf)||(x.txt.length>rr.txt.length)){rr=x;cR=c}
-    }
-  }
-  return{kk:rk.txt,red:rr.txt,cK,cR,blk,dec,ok:rk.txt.length===blk&&(!dec||rr.txt.length===dec)};
+// lê a linha inteira de dígitos; os primeiros são os pretos, os restantes os vermelhos
+async function readRegion(src,r){
+  const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec);
+  const c=prepLine(src,r),t=(await recog(c)).txt;
+  const kk=t.slice(0,blk),red=t.slice(blk,blk+dec);
+  return{kk,red,cK:c,cR:null,blk,dec,full:kk.length===blk&&red.length===dec,ok:kk.length===blk&&(!dec||red.length>=1)};
 }
 function showPrev(res){
   $('prev').innerHTML='';
@@ -364,11 +338,11 @@ $('ocr').onclick=async()=>{
   $('ocr').disabled=true;$('status').textContent='A ler… A primeira vez demora mais.';
   try{
     await ensureWorker();
-    const res=await readRegion(bmp,r,420);showPrev(res);
+    const res=await readRegion(bmp,r);showPrev(res);
     if(!res.kk&&!res.red){$('status').textContent='Não consegui ler. Ajusta o rectângulo aos dígitos ou escreve a leitura no passo 2.'}
     else{
       $('val').value=res.kk+(res.dec?','+res.red:'');
-      $('status').textContent='Pretos: '+(res.kk||'?')+(res.dec?', vermelhos: '+(res.red||'?'):'')+(res.ok?'. Confirma no passo 2.':'. Esperava '+res.blk+' + '+res.dec+' dígitos: confirma com o contador.');
+      $('status').textContent='Pretos: '+(res.kk||'?')+(res.dec?', vermelhos: '+(res.red||'?'):'')+(res.full?'. Confirma no passo 2.':'. Esperava '+res.blk+' + '+res.dec+' dígitos: confirma com o contador.');
     }
     update();$('val').scrollIntoView({behavior:'smooth',block:'center'});
   }catch(err){$('status').textContent='Erro na leitura: '+err.message}
@@ -391,12 +365,12 @@ async function liveLoop(my){
     const g=grabGuide();
     if(g){
       let res=null;
-      try{readCfg();res=await readRegion(g,{x:0,y:0,w:g.width,h:g.height},150)}catch(e){}
+      try{readCfg();res=await readRegion(g,{x:0,y:0,w:g.width,h:g.height})}catch(e){}
       if(stream!==my)return;
       if(res&&res.ok){
         const txt=res.kk+(res.dec?','+res.red:'');
         hist.push(res.kk+(res.red[0]||''));if(hist.length>3)hist.shift();
-        out.textContent='A ler: '+txt+(hist.length<3?'':'');
+        out.textContent='A ler: '+txt;
         if(hist.length===3&&hist[0]===hist[1]&&hist[1]===hist[2]){
           $('shoot').onclick();showPrev(res);
           $('val').value=txt;update();
