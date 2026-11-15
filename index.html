@@ -79,9 +79,8 @@
   .cam{position:relative;margin-top:14px;border-radius:10px;overflow:hidden;background:#111;line-height:0}
   .cam video{width:100%;height:auto;display:block}
   .step .cam{margin-left:-46px}
-  .guide{position:absolute;left:7%;width:86%;aspect-ratio:5.68/1;top:50%;transform:translateY(-50%);border:3px solid #00e676;border-radius:4px;box-shadow:0 0 0 2000px rgba(0,0,0,.4)}
-  .guide i{position:absolute;top:0;bottom:0;width:0;border-left:2px solid rgba(0,230,118,.75)}
-  .guide b{position:absolute;top:0;bottom:0;right:0;background:rgba(200,38,44,.22)}
+  .guide{position:absolute;left:5%;width:90%;aspect-ratio:2.6/1;top:50%;transform:translateY(-50%);border:2px dashed rgba(255,255,255,.85);border-radius:10px;box-shadow:0 0 0 2000px rgba(0,0,0,.35)}
+  #ov{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
   .credit{margin:26px 0 0;font-size:13.5px;color:var(--soft)}
   .credit a{color:var(--pipe-dk)}
   .live{margin:12px 0 0;font-weight:600;font-size:22px;font-variant-numeric:tabular-nums;min-height:32px}
@@ -130,9 +129,9 @@
   <button class="btn ghost" id="take2" type="button">Escolher foto da galeria</button>
   <p class="note" id="camNote">Afasta o telemóvel uns 30 cm e aproxima com o zoom: assim a câmara foca melhor. Foge ao reflexo do vidro.</p>
   <div id="camWrap" class="hide">
-    <div class="cam"><video id="vid" playsinline muted autoplay></video><div class="guide" id="guide"></div></div>
+    <div class="cam"><video id="vid" playsinline muted autoplay></video><div class="guide"></div><canvas id="ov"></canvas></div>
     <p class="live" id="liveTxt" role="status"></p>
-    <p class="note">Põe um dígito em cada divisão da moldura, com os vermelhos na zona vermelha. Não precisa de ficar perfeito: a leitura junta várias imagens e fixa-se sozinha.</p>
+    <p class="note">Basta ter os dígitos todos dentro da moldura tracejada. A app procura os rolos vermelhos e ajusta a grelha verde sozinha; quando a grelha assentar nos dígitos, a leitura fixa-se.</p>
     <div id="zoomRow" class="hide"><label for="zoom">Zoom</label><input type="range" id="zoom"></div>
     <button class="btn ghost" id="shoot" type="button" style="margin-top:12px">Tirar foto à mão</button>
     <div class="row" style="margin-top:10px">
@@ -180,7 +179,7 @@ try{S={...DEF,...JSON.parse(localStorage.getItem('contadorCfg')||'{}')}}catch(e)
 function loadCfg(){for(const k in DEF)$(k).value=S[k]}
 function readCfg(){for(const k in DEF){const v=$(k).value;S[k]=(typeof DEF[k]==='number')?(parseInt(v)||0):v.trim()}}
 loadCfg();
-$('save').onclick=()=>{readCfg();try{localStorage.setItem('contadorCfg',JSON.stringify(S))}catch(e){}$('cfg').classList.add('hide');update();drawGuide()};
+$('save').onclick=()=>{readCfg();try{localStorage.setItem('contadorCfg',JSON.stringify(S))}catch(e){}$('cfg').classList.add('hide');update()};
 $('gear').onclick=()=>{$('cfg').classList.toggle('hide');if(!$('cfg').classList.contains('hide'))$('cfg').scrollIntoView({behavior:'smooth'})};
 if(S.phone&&S.ref)$('cfg').classList.add('hide');
 
@@ -244,7 +243,8 @@ async function onPhoto(e){
 
 /* ---------- câmara dentro da app ---------- */
 let stream=null,track=null,torchOn=false;
-function stopCam(){if(stream)stream.getTracks().forEach(t=>t.stop());stream=track=null;torchOn=false;$('camWrap').classList.add('hide')}
+let liveRect=null;
+function stopCam(){const o=$('ov');o.getContext('2d').clearRect(0,0,o.width,o.height);if(stream)stream.getTracks().forEach(t=>t.stop());stream=track=null;torchOn=false;$('camWrap').classList.add('hide')}
 $('camClose').onclick=stopCam;
 $('live').onclick=async()=>{
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){$('file').click();return}
@@ -273,13 +273,13 @@ $('live').onclick=async()=>{
       tb.textContent=torchOn?'Desligar a luz':'Ligar a luz';tb.setAttribute('aria-pressed',String(torchOn))}catch(e){torchOn=false}};
   }else tb.classList.add('hide');
   $('camWrap').scrollIntoView({behavior:'smooth',block:'start'});
-  readCfg();drawGuide();$('liveTxt').textContent='À procura dos dígitos…';liveLoop(stream);
+  readCfg();$('liveTxt').textContent='À procura dos dígitos…';liveLoop(stream);
 };
 $('shoot').onclick=()=>{
   const v=$('vid'),w=v.videoWidth,h=v.videoHeight;if(!w||!h)return;
   const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(v,0,0,w,h);
   stopCam();
-  showPhoto(c,w,h,guideRect(w,h));
+  showPhoto(c,w,h,liveRect||guideRect(w,h));
 };
 $('file').onchange=onPhoto;$('file2').onchange=onPhoto;
 function draw(){
@@ -305,17 +305,65 @@ const RR=()=>Math.max(.5,Math.min(1.2,(S.rw||84)/100));
 const units=()=>Math.max(1,S.blk)+RR()*Math.max(0,S.dec);
 function guideRect(w,h){const gw=.86*w,gh=Math.min(h*.9,gw/units());return{x:.07*w,y:(h-gh)/2,w:gw,h:gh}}
 function centers(r){
-  const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec),p=r.w/units(),cx=[];
+  const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec),p=r.p||r.w/units(),q=r.rp||RR()*p,cx=[];
   for(let i=0;i<blk;i++)cx.push(r.x+p*(i+.5));
-  for(let j=0;j<dec;j++)cx.push(r.x+p*blk+RR()*p*(j+.5));
+  for(let j=0;j<dec;j++)cx.push(r.x+p*blk+q*(j+.5));
   return{p,cx,cy:r.y+r.h/2,blk,dec};
 }
-function drawGuide(){
-  const g=$('guide'),u=units(),blk=Math.max(1,S.blk),dec=Math.max(0,S.dec);let h='';
-  g.style.aspectRatio=u+'/1';
-  if(dec)h+='<b style="width:'+(100*RR()*dec/u)+'%"></b>';
-  for(let i=1;i<blk+dec;i++){const x=i<=blk?i:blk+RR()*(i-blk);h+='<i style="left:'+(100*x/u)+'%"></i>'}
-  g.innerHTML=h;
+const searchRect=(w,h)=>{const sw=.9*w,sh=Math.min(h,sw/2.6);return{x:.05*w,y:(h-sh)/2,w:sw,h:sh}};
+// procura os rolos vermelhos dentro de sr e devolve o rectângulo da fila de dígitos, ou null
+const lc=document.createElement('canvas'),lctx=lc.getContext('2d',{willReadFrequently:true});
+function runs(v,thr,gap){const out=[];let s=-1,last=-1;
+  for(let i=0;i<v.length;i++)if(v[i]>thr){if(s<0)s=i;else if(i-last-1>gap){out.push([s,last+1]);s=i}last=i}
+  if(s>=0)out.push([s,last+1]);return out}
+function bestRun(rs,v){let b=null,bs=-1;for(const r of rs){let t=0;for(let i=r[0];i<r[1];i++)t+=v[i];if(t>bs){bs=t;b=r}}return b}
+function locate(src,sr){
+  const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec);if(!dec)return null;
+  const k=Math.min(1,480/sr.w),W=Math.max(8,Math.round(sr.w*k)),H=Math.max(4,Math.round(sr.h*k));
+  lc.width=W;lc.height=H;lctx.drawImage(src,sr.x,sr.y,sr.w,sr.h,0,0,W,H);
+  const d=lctx.getImageData(0,0,W,H).data,n=W*H,red=new Int16Array(n),hist=new Int32Array(256);
+  for(let i=0;i<n;i++){const v=d[i*4]-Math.max(d[i*4+1],d[i*4+2]);red[i]=v;hist[v<0?0:v]++}
+  let c=0,p99=255;for(;p99>0;p99--){c+=hist[p99];if(c>=n*.005)break}
+  if(p99<8)return null;
+  const thr=Math.max(6,.45*p99),rows=new Int32Array(H);
+  for(let y=0;y<H;y++){let t=0;for(let x=0;x<W;x++)if(red[y*W+x]>thr)t++;rows[y]=t}
+  let mx=0;for(const t of rows)if(t>mx)mx=t;
+  const ry=bestRun(runs(rows,Math.max(2,mx*.35),2),rows);if(!ry)return null;
+  const h=ry[1]-ry[0],cols=new Int32Array(W);
+  for(let x=0;x<W;x++){let t=0;for(let y=ry[0];y<ry[1];y++)if(red[y*W+x]>thr)t++;cols[x]=t}
+  const rx=bestRun(runs(cols,Math.max(1,h*.25),Math.max(2,Math.round(h*.2))),cols);if(!rx)return null;
+  const w=rx[1]-rx[0],ratio=(w/h)/(dec*RR());
+  if(h<6||ratio<.6||ratio>1.7)return null;
+  const p0=w/(dec*RR()),cy=(ry[0]+ry[1])/2;
+  // limites do bloco vermelho: onde a cor muda mais depressa
+  const rp=new Float32Array(W);
+  for(let x=0;x<W;x++){let t=0;for(let y=ry[0];y<ry[1];y++)t+=red[y*W+x];rp[x]=t/h}
+  const edge=(c0,sign)=>{let b=c0,bv=-1e9;const m=Math.max(2,Math.round(.4*p0)),g=Math.max(1,Math.round(.06*p0));
+    for(let x=Math.max(g,c0-m);x<=Math.min(W-1-g,c0+m);x++){const v=sign*(rp[x+g]-rp[x-g]);if(v>bv){bv=v;b=x}}return b};
+  const xb=edge(rx[0],1),xr=edge(rx[1],-1);
+  // largura real de um rolo: periodicidade do brilho ao longo dos rolos pretos
+  let p=p0;
+  {const xa=Math.max(0,Math.round(xb-(blk+.5)*1.3*p0)),L=xb-xa,ya=Math.max(0,Math.round(cy-.35*p0)),yb=Math.min(H,Math.round(cy+.35*p0));
+   if(L>2.2*p0&&yb>ya){
+    const pr=new Float32Array(L),hp=new Float32Array(L);
+    for(let x=0;x<L;x++){let t=0;for(let y=ya;y<yb;y++){const i=(y*W+xa+x)*4;t+=.3*d[i]+.59*d[i+1]+.11*d[i+2]}pr[x]=t/(yb-ya)}
+    const kw=Math.max(3,Math.round(p0)|1),hw=kw>>1;
+    for(let x=0;x<L;x++){let t=0,c2=0;for(let j=x-hw;j<=x+hw;j++)if(j>=0&&j<L){t+=pr[j];c2++}hp[x]=pr[x]-t/c2}
+    const ac=lag=>{let a=0,b=0,c2=0;for(let x=0;x+lag<L;x++){a+=hp[x]*hp[x+lag];b+=hp[x]*hp[x];c2+=hp[x+lag]*hp[x+lag]}return a/Math.sqrt(b*c2+1e-9)};
+    let bl=0,bc=-1;const l0=Math.max(2,Math.round(.85*p0)),l1=Math.min(L-Math.round(p0),Math.round(1.5*p0));
+    for(let lag=l0;lag<=l1;lag++){const c2=ac(lag);if(c2>bc){bc=c2;bl=lag}}
+    if(bc>.2&&bl>l0&&bl<l1){const a=ac(bl-1),b=bc,c2=ac(bl+1),den=a-2*b+c2;p=bl+(den<0?.5*(a-c2)/den:0)}
+   }}
+  const r={x:sr.x+(xb-blk*p)/k,y:sr.y+(cy-p/2)/k,w:(blk*p+xr-xb)/k,h:p/k,p:p/k,rp:(xr-xb)/dec/k};
+  return r.x<sr.x-.02*sr.w?null:r;
+}
+function drawOverlay(w,h,r,found){
+  const o=$('ov');if(o.width!==w||o.height!==h){o.width=w;o.height=h}
+  const c=o.getContext('2d');c.clearRect(0,0,w,h);if(!r)return;
+  const g=centers(r);c.lineWidth=Math.max(2,w/320);c.strokeStyle=found?'#00e676':'rgba(255,255,255,.7)';
+  c.strokeRect(r.x,r.y,r.w,r.h);c.beginPath();
+  for(let i=1;i<g.cx.length;i++){const x=i<=g.blk?r.x+g.p*i:r.x+g.p*g.blk+(r.rp||RR()*g.p)*(i-g.blk);c.moveTo(x,r.y);c.lineTo(x,r.y+r.h)}
+  c.stroke();
 }
 
 /* ---------- modelo de dígitos de contador (AI-on-the-edge-device, dig-class100) ---------- */
@@ -410,6 +458,9 @@ $('ocr').onclick=async()=>{
   readCfg();
   $('ocr').disabled=true;$('status').textContent='A ler…';
   if(!await loadNet()){$('status').textContent='Não foi possível carregar o leitor de dígitos. Verifica a internet ou escreve a leitura no passo 2.';$('ocr').disabled=false;return}
+  {const e=.15,sr={x:Math.max(0,rect.x-e*rect.w),y:Math.max(0,rect.y-rect.h),w:rect.w*(1+2*e),h:rect.h*3};
+   sr.w=Math.min(sr.w,cv.width-sr.x);sr.h=Math.min(sr.h,cv.height-sr.y);
+   const f=locate(bmp,sr);if(f){rect=f;draw()}}
   const res=readDigits(bmp,rect),ms=res.votes.map(mode),txt=fmt(ms.map(m=>m.v),res.g.blk,res.g.dec);
   showTiles(bmp,rect);
   $('val').value=txt;update();
@@ -426,7 +477,8 @@ async function liveLoop(my){
   while(stream===my){
     const w=v.videoWidth,h=v.videoHeight;
     if(w&&h){
-      const r=guideRect(w,h),res=readDigits(v,r),n=res.votes.length;
+      const f=locate(v,searchRect(w,h)),r=f||guideRect(w,h),res=readDigits(v,r),n=res.votes.length;
+      liveRect=r;drawOverlay(w,h,r,!!f);
       if(!hist||hist.length!==n){hist=res.votes.map(()=>[]);frames=0}
       res.votes.forEach((vt,i)=>{hist[i].push(...vt);if(hist[i].length>15)hist[i].splice(0,hist[i].length-15)});
       frames++;
@@ -445,7 +497,6 @@ async function liveLoop(my){
     await new Promise(r=>setTimeout(r,60));
   }
 }
-drawGuide();
 
 if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
