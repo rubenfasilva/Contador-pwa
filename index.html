@@ -78,7 +78,12 @@
   .seq+.btn{margin-top:14px}
   .cam{position:relative;margin-top:14px;border-radius:10px;overflow:hidden;background:#111;line-height:0}
   .cam video{width:100%;height:auto;display:block}
-  .guide{position:absolute;left:10%;width:80%;aspect-ratio:4/1;top:50%;transform:translateY(-50%);border:3px solid #00e676;border-radius:6px;box-shadow:0 0 0 2000px rgba(0,0,0,.4)}
+  .step .cam{margin-left:-46px}
+  .guide{position:absolute;left:7%;width:86%;aspect-ratio:5.68/1;top:50%;transform:translateY(-50%);border:3px solid #00e676;border-radius:4px;box-shadow:0 0 0 2000px rgba(0,0,0,.4)}
+  .guide i{position:absolute;top:0;bottom:0;width:0;border-left:2px solid rgba(0,230,118,.75)}
+  .guide b{position:absolute;top:0;bottom:0;right:0;background:rgba(200,38,44,.22)}
+  .credit{margin:26px 0 0;font-size:13.5px;color:var(--soft)}
+  .credit a{color:var(--pipe-dk)}
   .live{margin:12px 0 0;font-weight:600;font-size:22px;font-variant-numeric:tabular-nums;min-height:32px}
   input[type=range]{width:100%;height:44px;accent-color:var(--pipe)}
   .row .btn+.btn{margin-top:0}
@@ -109,6 +114,8 @@
     <div><label for="blk">Dígitos pretos</label><input type="number" id="blk" min="1" max="8"></div>
     <div><label for="dec">Dígitos vermelhos</label><input type="number" id="dec" min="0" max="4"></div>
   </div>
+  <label for="rw">Largura de um rolo vermelho, em % de um preto</label>
+  <input type="number" id="rw" min="50" max="120">
   <label for="suf">Tecla final (opcional, por exemplo #)</label>
   <input type="text" id="suf">
   <button class="btn" id="save" type="button" style="margin-top:18px">Guardar definições</button>
@@ -123,9 +130,9 @@
   <button class="btn ghost" id="take2" type="button">Escolher foto da galeria</button>
   <p class="note" id="camNote">Afasta o telemóvel uns 30 cm e aproxima com o zoom: assim a câmara foca melhor. Foge ao reflexo do vidro.</p>
   <div id="camWrap" class="hide">
-    <div class="cam"><video id="vid" playsinline muted autoplay></video><div class="guide"></div></div>
+    <div class="cam"><video id="vid" playsinline muted autoplay></video><div class="guide" id="guide"></div></div>
     <p class="live" id="liveTxt" role="status"></p>
-    <p class="note">Põe os dígitos, pretos e vermelhos, justos dentro da moldura e segura o telemóvel firme. A leitura fixa-se sozinha quando estabilizar.</p>
+    <p class="note">Põe um dígito em cada divisão da moldura, com os vermelhos na zona vermelha. Não precisa de ficar perfeito: a leitura junta várias imagens e fixa-se sozinha.</p>
     <div id="zoomRow" class="hide"><label for="zoom">Zoom</label><input type="range" id="zoom"></div>
     <button class="btn ghost" id="shoot" type="button" style="margin-top:12px">Tirar foto à mão</button>
     <div class="row" style="margin-top:10px">
@@ -135,7 +142,7 @@
   </div>
   <div id="cropWrap" class="hide">
     <canvas id="cv"></canvas>
-    <p class="note">O rectângulo verde tem de ficar justo à volta de todos os dígitos, pretos e vermelhos. Arrasta na foto para o redesenhar.</p>
+    <p class="note">O rectângulo verde tem de ficar justo à volta de todos os dígitos, do primeiro preto ao último vermelho. Arrasta na foto para o redesenhar.</p>
     <button class="btn" id="ocr" type="button" style="margin-top:12px">Ler dígitos</button>
     <p class="note" id="status" role="status"></p>
     <div id="prev"></div>
@@ -162,18 +169,18 @@
   <p class="warn" id="callMsg" role="alert"></p>
   <p class="note">O marcador abre já preenchido. Confirma e carrega em chamar.</p>
 </section>
+<p class="credit">A leitura dos dígitos usa um modelo do projecto <a href="https://github.com/jomjol/AI-on-the-edge-device">AI-on-the-edge-device</a>, livre para uso privado e não comercial.</p>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js"></script>
 <script>
 const $=id=>document.getElementById(id);
-const DEF={phone:'',opt:'',ref:'',p0:3,p1:2,blk:4,dec:2,suf:''};
+const DEF={phone:'',opt:'',ref:'',p0:3,p1:2,blk:4,dec:2,rw:84,suf:''};
 let S={...DEF};
 try{S={...DEF,...JSON.parse(localStorage.getItem('contadorCfg')||'{}')}}catch(e){}
 function loadCfg(){for(const k in DEF)$(k).value=S[k]}
 function readCfg(){for(const k in DEF){const v=$(k).value;S[k]=(typeof DEF[k]==='number')?(parseInt(v)||0):v.trim()}}
 loadCfg();
-$('save').onclick=()=>{readCfg();try{localStorage.setItem('contadorCfg',JSON.stringify(S))}catch(e){}$('cfg').classList.add('hide');update()};
+$('save').onclick=()=>{readCfg();try{localStorage.setItem('contadorCfg',JSON.stringify(S))}catch(e){}$('cfg').classList.add('hide');update();drawGuide()};
 $('gear').onclick=()=>{$('cfg').classList.toggle('hide');if(!$('cfg').classList.contains('hide'))$('cfg').scrollIntoView({behavior:'smooth'})};
 if(S.phone&&S.ref)$('cfg').classList.add('hide');
 
@@ -232,7 +239,7 @@ async function onPhoto(e){
   const f=e.target.files[0];if(!f)return;let b;
   try{b=await createImageBitmap(f,{imageOrientation:'from-image'})}catch(err){
     b=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(f)})}
-  {const w=b.width,h=b.height,gw=.8*w,gh=Math.min(h*.9,gw/4);showPhoto(b,w,h,{x:.1*w,y:(h-gh)/2,w:gw,h:gh})}e.target.value='';
+  readCfg();showPhoto(b,b.width,b.height,guideRect(b.width,b.height));e.target.value='';
 }
 
 /* ---------- câmara dentro da app ---------- */
@@ -266,14 +273,13 @@ $('live').onclick=async()=>{
       tb.textContent=torchOn?'Desligar a luz':'Ligar a luz';tb.setAttribute('aria-pressed',String(torchOn))}catch(e){torchOn=false}};
   }else tb.classList.add('hide');
   $('camWrap').scrollIntoView({behavior:'smooth',block:'start'});
-  $('liveTxt').textContent='À procura dos dígitos…';liveLoop(stream);
+  readCfg();drawGuide();$('liveTxt').textContent='À procura dos dígitos…';liveLoop(stream);
 };
 $('shoot').onclick=()=>{
   const v=$('vid'),w=v.videoWidth,h=v.videoHeight;if(!w||!h)return;
   const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(v,0,0,w,h);
   stopCam();
-  const gh=.8*w/4;
-  showPhoto(c,w,h,{x:.1*w,y:(h-gh)/2,w:.8*w,h:gh});
+  showPhoto(c,w,h,guideRect(w,h));
 };
 $('file').onchange=onPhoto;$('file2').onchange=onPhoto;
 function draw(){
@@ -294,95 +300,152 @@ cv.addEventListener('pointermove',e=>{if(!drag)return;const p=pos(e);
   rect={x:Math.min(drag.x,p.x),y:Math.min(drag.y,p.y),w:Math.abs(p.x-drag.x),h:Math.abs(p.y-drag.y)};draw()});
 cv.addEventListener('pointerup',()=>{drag=null});
 
-/* ---------- OCR (pretos e vermelhos em separado) ---------- */
-let worker=null;
-// tratamento da v1 (a única que leu no telemóvel): cinzento com contraste esticado, sem binarizar
-function prepLine(src,r){
-  const sc=Math.min(4,Math.max(1,900/r.w));
-  const t=document.createElement('canvas');t.width=Math.round(r.w*sc);t.height=Math.round(r.h*sc);
-  const tc=t.getContext('2d');tc.drawImage(src,r.x,r.y,r.w,r.h,0,0,t.width,t.height);
-  const im=tc.getImageData(0,0,t.width,t.height),d=im.data;let mn=255,mx=0;
-  for(let i=0;i<d.length;i+=4){const g=.3*d[i]+.59*d[i+1]+.11*d[i+2];d[i]=d[i+1]=d[i+2]=g;if(g<mn)mn=g;if(g>mx)mx=g}
-  const k=255/Math.max(1,mx-mn);
-  for(let i=0;i<d.length;i+=4){const v=Math.max(0,Math.min(255,(d[i]-mn)*k));d[i]=d[i+1]=d[i+2]=v}
-  tc.putImageData(im,0,0);return t;
+/* ---------- geometria: um rolo preto mede 1, um vermelho mede rw% ---------- */
+const RR=()=>Math.max(.5,Math.min(1.2,(S.rw||84)/100));
+const units=()=>Math.max(1,S.blk)+RR()*Math.max(0,S.dec);
+function guideRect(w,h){const gw=.86*w,gh=Math.min(h*.9,gw/units());return{x:.07*w,y:(h-gh)/2,w:gw,h:gh}}
+function centers(r){
+  const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec),p=r.w/units(),cx=[];
+  for(let i=0;i<blk;i++)cx.push(r.x+p*(i+.5));
+  for(let j=0;j<dec;j++)cx.push(r.x+p*blk+RR()*p*(j+.5));
+  return{p,cx,cy:r.y+r.h/2,blk,dec};
 }
-async function recog(c){
-  const o=await worker.recognize(c);
-  return{txt:(o.data.text||'').replace(/\D/g,''),conf:o.data.confidence||0};
+function drawGuide(){
+  const g=$('guide'),u=units(),blk=Math.max(1,S.blk),dec=Math.max(0,S.dec);let h='';
+  g.style.aspectRatio=u+'/1';
+  if(dec)h+='<b style="width:'+(100*RR()*dec/u)+'%"></b>';
+  for(let i=1;i<blk+dec;i++){const x=i<=blk?i:blk+RR()*(i-blk);h+='<i style="left:'+(100*x/u)+'%"></i>'}
+  g.innerHTML=h;
 }
-async function ensureWorker(){
-  if(typeof Tesseract==='undefined')return false;
-  if(!worker){worker=await Tesseract.createWorker('eng');
-    await worker.setParameters({tessedit_char_whitelist:'0123456789',tessedit_pageseg_mode:'7'})}
-  return true;
+
+/* ---------- modelo de dígitos de contador (AI-on-the-edge-device, dig-class100) ---------- */
+let net=null,netErr=false;
+async function loadNet(){
+  if(net||netErr)return net;
+  try{
+    const [m,buf]=await Promise.all([fetch('digitos.json').then(r=>{if(!r.ok)throw 0;return r.json()}),fetch('digitos.bin').then(r=>{if(!r.ok)throw 0;return r.arrayBuffer()})]);
+    const deq=c=>{
+      const a=c.dtype==='int8'?new Int8Array(buf,c.off,c.n):new Int32Array(buf,c.off,c.n),f=new Float32Array(c.n),ns=c.scale.length,per=c.n/ns;
+      for(let i=0;i<c.n;i++){const k=ns>1?Math.floor(i/per):0;f[i]=(a[i]-c.zp[ns>1?k:0])*c.scale[k]}
+      return f;
+    };
+    for(const L of m.layers){if(L.c)L.cf=deq(L.c);if(L.w){L.wf=deq(L.w);L.bf=deq(L.b)}}
+    net=m;
+  }catch(e){netErr=true}
+  return net;
 }
-// lê a linha inteira de dígitos; os primeiros são os pretos, os restantes os vermelhos
-async function readRegion(src,r){
-  const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec);
-  const c=prepLine(src,r),t=(await recog(c)).txt;
-  const kk=t.slice(0,blk),red=t.slice(blk,blk+dec);
-  return{kk,red,cK:c,cR:null,blk,dec,full:kk.length===blk&&red.length===dec,ok:kk.length===blk&&(!dec||red.length>=1)};
+// x: Float32Array HWC com valores 0..255; devolve a classe 0..99 (dígito × 10)
+function forward(x,h,w,c){
+  const Ls=net.layers;
+  for(let li=0;li<Ls.length;li++){
+    const L=Ls[li],lo=L.range[0],hi=L.range[1];let y=x;
+    if(L.op==='MUL'||L.op==='ADD'){
+      const k=L.cf,mul=L.op==='MUL';y=new Float32Array(x.length);
+      for(let i=0;i<x.length;i++)y[i]=mul?x[i]*k[i%c]:x[i]+k[i%c];
+    }else if(L.op==='CONV_2D'){
+      const O=L.w.shape[0],W=L.wf,B=L.bf;y=new Float32Array(h*w*O);
+      for(let yy=0;yy<h;yy++)for(let xx=0;xx<w;xx++){
+        const ob=(yy*w+xx)*O;
+        for(let o=0;o<O;o++){
+          let s=B[o];
+          for(let ky=0;ky<3;ky++){const sy=yy+ky-1;if(sy<0||sy>=h)continue;
+            for(let kx=0;kx<3;kx++){const sx=xx+kx-1;if(sx<0||sx>=w)continue;
+              const ib=(sy*w+sx)*c,wb=((o*3+ky)*3+kx)*c;
+              for(let i=0;i<c;i++)s+=x[ib+i]*W[wb+i];
+            }}
+          y[ob+o]=s>0?s:0;
+        }
+      }
+      c=O;
+    }else if(L.op==='MAX_POOL_2D'){
+      const H2=h>>1,W2=w>>1;y=new Float32Array(H2*W2*c);
+      for(let yy=0;yy<H2;yy++)for(let xx=0;xx<W2;xx++)for(let i=0;i<c;i++){
+        const a=(2*yy*w+2*xx)*c+i,b=a+c,d=a+w*c,e=d+c;
+        y[(yy*W2+xx)*c+i]=Math.max(x[a],x[b],x[d],x[e]);
+      }
+      h=H2;w=W2;
+    }else if(L.op==='FULLY_CONNECTED'){
+      const O=L.w.shape[0],I=L.w.shape[1],W=L.wf,B=L.bf,last=li===Ls.length-1;y=new Float32Array(O);
+      for(let o=0;o<O;o++){let s=B[o];const wb=o*I;for(let i=0;i<I;i++)s+=x[i]*W[wb+i];y[o]=last?s:(s>0?s:0)}
+      h=1;w=1;c=O;
+    }
+    for(let i=0;i<y.length;i++)y[i]=y[i]<lo?lo:y[i]>hi?hi:y[i];
+    x=y;
+  }
+  let best=0;for(let i=1;i<x.length;i++)if(x[i]>x[best])best=i;
+  return best;
 }
-function showPrev(res){
-  $('prev').innerHTML='';
-  for(const c of [res.cK,res.cR]){if(!c)continue;const cc=document.createElement('canvas');cc.width=c.width;cc.height=c.height;
-    cc.getContext('2d').drawImage(c,0,0);cc.style.cssText='height:46px;width:auto;max-width:60%;border:1.5px solid #c3cbc8;border-radius:6px';$('prev').appendChild(cc)}
+const tile=document.createElement('canvas');tile.width=20;tile.height=32;
+const tctx=tile.getContext('2d',{willReadFrequently:true});tctx.imageSmoothingQuality='high';
+function classify(src,cx,cy,p){
+  const w=.68*p,h=1.12*p;
+  tctx.fillStyle='#000';tctx.fillRect(0,0,20,32);
+  tctx.drawImage(src,cx-w/2,cy-h/2,w,h,0,0,20,32);
+  const d=tctx.getImageData(0,0,20,32).data,x=new Float32Array(1920);
+  for(let i=0,j=0;i<d.length;i+=4){x[j++]=d[i];x[j++]=d[i+1];x[j++]=d[i+2]}
+  return forward(x,32,20,3);
 }
+const OFFS=[-.1,0,.1];
+// devolve, para cada dígito, os votos (0..9) das três posições vizinhas
+function readDigits(src,r){
+  const g=centers(r),n=g.cx.length,votes=[];
+  for(let i=0;i<n;i++){
+    const last=g.dec>0&&i===n-1,v=[];
+    for(const o of OFFS){const k=classify(src,g.cx[i]+o*g.p,g.cy,g.p);v.push(last?Math.floor(k/10):Math.round(k/10)%10)}
+    votes.push(v);
+  }
+  return{votes,g};
+}
+function mode(a){const c={};let b=a[0],n=0;for(const v of a){c[v]=(c[v]||0)+1;if(c[v]>n){n=c[v];b=v}}return{v:b,n}}
+function showTiles(src,r){
+  const g=centers(r),w=.68*g.p,h=1.12*g.p,pv=$('prev');pv.innerHTML='';
+  g.cx.forEach(cx=>{const c=document.createElement('canvas');c.width=40;c.height=64;
+    c.getContext('2d').drawImage(src,cx-w/2,g.cy-h/2,w,h,0,0,40,64);
+    c.style.cssText='height:56px;width:auto;border:1.5px solid #c3cbc8;border-radius:4px';pv.appendChild(c)});
+}
+function fmt(d,blk,dec){return d.slice(0,blk).join('')+(dec?','+d.slice(blk).join(''):'')}
 $('ocr').onclick=async()=>{
   if(!bmp)return;
-  if(typeof Tesseract==='undefined'){$('status').textContent='Leitura automática indisponível sem internet. Escreve a leitura no passo 2.';return}
   if(!rect||rect.w<cv.width*.15||rect.h<cv.height*.02){$('status').textContent='O rectângulo verde está pequeno demais ou fora dos dígitos. Arrasta na foto, do canto superior esquerdo ao inferior direito dos dígitos.';return}
-  const r=rect;
   readCfg();
-  $('ocr').disabled=true;$('status').textContent='A ler… A primeira vez demora mais.';
-  try{
-    await ensureWorker();
-    const res=await readRegion(bmp,r);showPrev(res);
-    if(!res.kk&&!res.red){$('status').textContent='Não consegui ler. Ajusta o rectângulo aos dígitos ou escreve a leitura no passo 2.'}
-    else{
-      $('val').value=res.kk+(res.dec?','+res.red:'');
-      $('status').textContent='Pretos: '+(res.kk||'?')+(res.dec?', vermelhos: '+(res.red||'?'):'')+(res.full?'. Confirma no passo 2.':'. Esperava '+res.blk+' + '+res.dec+' dígitos: confirma com o contador.');
-    }
-    update();$('val').scrollIntoView({behavior:'smooth',block:'center'});
-  }catch(err){$('status').textContent='Erro na leitura: '+err.message}
+  $('ocr').disabled=true;$('status').textContent='A ler…';
+  if(!await loadNet()){$('status').textContent='Não foi possível carregar o leitor de dígitos. Verifica a internet ou escreve a leitura no passo 2.';$('ocr').disabled=false;return}
+  const res=readDigits(bmp,rect),ms=res.votes.map(mode),txt=fmt(ms.map(m=>m.v),res.g.blk,res.g.dec);
+  showTiles(bmp,rect);
+  $('val').value=txt;update();
+  $('status').textContent='Lido: '+txt+(ms.every(m=>m.n>=2)?'. ':'. Alguns dígitos ficaram duvidosos. ')+'Confirma no passo 2 com o que vês no contador. Em baixo estão os recortes que foram lidos.';
+  $('val').scrollIntoView({behavior:'smooth',block:'center'});
   $('ocr').disabled=false;
 };
 
-/* ---------- leitura ao vivo: fixa o valor quando 3 leituras seguidas coincidem ---------- */
-function grabGuide(){
-  const v=$('vid'),w=v.videoWidth,h=v.videoHeight;if(!w||!h)return null;
-  const gw=.8*w,gh=gw/4,sc=Math.min(1,1000/gw);
-  const c=document.createElement('canvas');c.width=Math.round(gw*sc);c.height=Math.round(gh*sc);
-  c.getContext('2d').drawImage(v,.1*w,(h-gh)/2,gw,gh,0,0,c.width,c.height);return c;
-}
+/* ---------- leitura ao vivo: junta os votos de várias imagens e fixa quando há maioria clara ---------- */
 async function liveLoop(my){
-  const out=$('liveTxt');let hist=[];
-  let ready=false;
-  try{ready=await ensureWorker()}catch(e){}
-  if(!ready){out.textContent='Leitura automática indisponível. Tira a foto e escreve a leitura.';return}
+  const out=$('liveTxt');
+  if(!await loadNet()){out.textContent='Não foi possível carregar o leitor de dígitos. Tira a foto e escreve a leitura.';return}
+  const v=$('vid');let hist=null,frames=0;
   while(stream===my){
-    const g=grabGuide();
-    if(g){
-      let res=null;
-      try{readCfg();res=await readRegion(g,{x:0,y:0,w:g.width,h:g.height})}catch(e){}
-      if(stream!==my)return;
-      if(res&&res.ok){
-        const txt=res.kk+(res.dec?','+res.red:'');
-        hist.push(res.kk+(res.red[0]||''));if(hist.length>3)hist.shift();
-        out.textContent='A ler: '+txt;
-        if(hist.length===3&&hist[0]===hist[1]&&hist[1]===hist[2]){
-          $('shoot').onclick();showPrev(res);
-          $('val').value=txt;update();
-          $('status').textContent='Lido ao vivo: '+txt+'. Confirma no passo 2 com o que vês no contador.';
-          $('val').scrollIntoView({behavior:'smooth',block:'center'});
-          return;
-        }
-      }else{hist=[];out.textContent=res&&(res.kk||res.red)?'A ler: '+(res.kk||'?')+(res.dec?','+(res.red||'?'):'')+' (incompleto)':'À procura dos dígitos…'}
+    const w=v.videoWidth,h=v.videoHeight;
+    if(w&&h){
+      const r=guideRect(w,h),res=readDigits(v,r),n=res.votes.length;
+      if(!hist||hist.length!==n){hist=res.votes.map(()=>[]);frames=0}
+      res.votes.forEach((vt,i)=>{hist[i].push(...vt);if(hist[i].length>15)hist[i].splice(0,hist[i].length-15)});
+      frames++;
+      const ms=hist.map(mode),txt=fmt(ms.map(m=>m.v),res.g.blk,res.g.dec);
+      out.textContent='A ler: '+txt;
+      // o último vermelho está sempre a rodar: não entra na decisão
+      const need=res.g.dec>1?n-1:n;
+      if(frames>=5&&ms.slice(0,need).every((m,i)=>hist[i].length>=15&&m.n>=10)){
+        $('shoot').onclick();showTiles(bmp,rect);
+        $('val').value=txt;update();
+        $('status').textContent='Lido ao vivo: '+txt+'. Confirma no passo 2 com o que vês no contador.';
+        $('val').scrollIntoView({behavior:'smooth',block:'center'});
+        return;
+      }
     }
-    await new Promise(r=>setTimeout(r,200));
+    await new Promise(r=>setTimeout(r,60));
   }
 }
+drawGuide();
 
 if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
