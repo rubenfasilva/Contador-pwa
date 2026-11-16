@@ -4,170 +4,251 @@
 <meta charset="utf-8">
 <title>Leitura Contador SMAS</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#e4e8e6">
+<meta name="theme-color" content="#e9f4fb">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@500;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
-    --plate:#e4e8e6;   /* mostrador cinza do contador */
-    --paper:#ffffff;
-    --ink:#1b2422;
-    --soft:#5a6663;
-    --line:#c3cbc8;
-    --pipe:#1769c2;    /* azul da torneira de corte */
-    --pipe-dk:#0f4f96;
-    --roll:#15181a;
-    --red:#c8262c;
+    --bg:#e9f4fb; --card:#ffffff; --ink:#0e2a47; --soft:#557089; --line:#cfe1ee;
+    --blue:#1267e0; --blue-dk:#0b4aa6; --green:#128a4c; --green-dk:#0b6537;
+    --sun:#ffb703; --red:#e5484d; --roll:#101820;
+    --disp:Fredoka,"Nunito",system-ui,sans-serif; --body:Nunito,system-ui,sans-serif;
   }
   *{box-sizing:border-box}
   html{-webkit-text-size-adjust:100%}
-  body{margin:0;background:var(--plate);color:var(--ink);font:400 17px/1.45 Barlow,system-ui,sans-serif}
-  .wrap{max-width:520px;margin:0 auto;padding:20px 18px 48px}
-
-  .top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:22px}
-  .top h1{margin:0;font-size:30px;line-height:1.05;font-weight:700;letter-spacing:-.01em}
-  .top p{margin:4px 0 0;color:var(--soft);font-size:15px}
-  .link{background:none;border:0;padding:8px 0;min-height:44px;color:var(--pipe-dk);font:600 16px Barlow,system-ui,sans-serif;text-decoration:underline;text-underline-offset:3px;cursor:pointer;white-space:nowrap}
-
-  /* passos ligados por um "tubo" */
-  .step{position:relative;padding:0 0 30px 46px}
-  .step::before{content:"";position:absolute;left:14px;top:34px;bottom:-2px;width:4px;border-radius:2px;background:var(--line)}
-  .step:last-of-type::before{display:none}
-  .num{position:absolute;left:0;top:0;width:32px;height:32px;border-radius:50%;background:var(--pipe);color:#fff;font-weight:700;font-size:17px;display:grid;place-items:center}
-  .step h2{margin:0 0 12px;font-size:21px;line-height:32px;font-weight:600}
-
-  .btn{display:flex;align-items:center;justify-content:center;width:100%;min-height:54px;padding:10px 16px;border-radius:10px;border:2px solid var(--pipe);background:var(--pipe);color:#fff;font:600 18px Barlow,system-ui,sans-serif;text-decoration:none;text-align:center;cursor:pointer}
-  .btn:active{background:var(--pipe-dk);border-color:var(--pipe-dk)}
-  .btn.ghost{background:transparent;color:var(--pipe-dk);min-height:48px;font-size:16px}
-  .btn.ghost:active{background:#d5dcda}
-  .btn[disabled],.btn.off{opacity:.45}
-  .btn+.btn{margin-top:10px}
+  body{margin:0;background:var(--bg);color:var(--ink);font:500 17px/1.45 var(--body)}
+  .app{max-width:480px;margin:0 auto;padding:12px 16px 40px}
+  .hide{display:none!important}
   :focus-visible{outline:3px solid var(--ink);outline-offset:2px}
 
-  .note{margin:10px 0 0;color:var(--soft);font-size:14.5px;line-height:1.4}
-  .warn{margin:10px 0 0;color:#8a1c20;font-size:15px;font-weight:500}
-  .warn:empty,.note:empty{display:none}
+  .bar{display:flex;align-items:center;gap:10px;height:48px}
+  .brand{display:flex;align-items:center;gap:8px;font:600 20px var(--disp);margin-right:auto}
+  .brand svg{width:22px;height:26px}
+  .streak{display:flex;align-items:center;gap:6px;padding:6px 12px 6px 9px;border-radius:999px;background:#fff3cf;color:#6b4a00;font:800 15px var(--body)}
+  .streak svg{width:16px;height:20px}
+  .streak.zero{background:#dfeaf2;color:var(--soft)}
+  .icon{width:44px;height:44px;border:0;border-radius:12px;background:transparent;color:var(--ink);display:grid;place-items:center;cursor:pointer}
+  .icon svg{width:24px;height:24px}
 
-  label{display:block;margin:14px 0 5px;font-size:15px;font-weight:500;color:var(--soft)}
-  input[type=text],input[type=tel],input[type=number]{width:100%;height:50px;padding:0 12px;border:1.5px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);font:500 19px Barlow,system-ui,sans-serif;font-variant-numeric:tabular-nums}
-  input:focus{outline:none;border-color:var(--pipe);box-shadow:0 0 0 3px rgba(23,105,194,.2)}
-  .row{display:flex;gap:12px}.row>*{flex:1;min-width:0}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 18px}
+  .steps button{border:0;background:none;padding:0;font:800 13.5px var(--body);color:var(--soft);text-align:left;cursor:pointer;min-height:36px}
+  .steps button::before{content:"";display:block;height:8px;border-radius:4px;background:#cfe1ee;margin-bottom:6px}
+  .steps button.on{color:var(--ink)}
+  .steps button.on::before{background:var(--blue)}
+  .steps button.ok::before{background:var(--green)}
+  .steps button:disabled{cursor:default}
 
-  .panel{background:var(--paper);border-radius:14px;padding:4px 16px 18px;margin-bottom:26px}
-  .panel h2{margin:14px 0 0;font-size:21px;font-weight:600}
+  h1{font:600 28px/1.1 var(--disp);margin:0 0 6px}
+  .sub{margin:0 0 18px;color:var(--soft)}
 
-  canvas#cv{display:block;width:100%;margin-top:14px;border-radius:10px;background:#222;touch-action:none}
-  #prev{display:flex;gap:8px;margin-top:10px}
-  #prev:empty{display:none}
+  .btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:56px;padding:10px 18px;border:0;border-radius:16px;background:var(--blue);color:#fff;font:600 19px var(--disp);text-decoration:none;cursor:pointer;box-shadow:0 5px 0 var(--blue-dk);transition:transform .06s,box-shadow .06s}
+  .btn:active{transform:translateY(5px);box-shadow:0 0 0 var(--blue-dk)}
+  .btn svg{width:24px;height:24px;flex:none}
+  .btn.green{background:var(--green);box-shadow:0 5px 0 var(--green-dk)}
+  .btn.green:active{box-shadow:0 0 0 var(--green-dk)}
+  .btn.ghost{background:var(--card);color:var(--blue-dk);box-shadow:0 5px 0 var(--line);border:2px solid var(--line);min-height:52px;font-size:17px}
+  .btn.ghost:active{box-shadow:0 0 0 var(--line)}
+  .btn.off,.btn[disabled]{opacity:.45}
+  .btn+.btn,.btn+.stack,.stack .btn+.btn{margin-top:16px}
+  .text{display:block;width:100%;margin-top:14px;padding:10px;min-height:44px;border:0;background:none;color:var(--blue-dk);font:800 16px var(--body);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+  .note{margin:14px 0 0;color:var(--soft);font-size:15px;line-height:1.4}
+  .warn{margin:12px 0 0;color:#a11d22;font-weight:700;font-size:15.5px}
+  .note:empty,.warn:empty{display:none}
 
-  /* mostrador de rolos, como no contador */
-  .dial{background:linear-gradient(#f6f8f7,#dfe4e2);border:1.5px solid var(--line);border-radius:14px;padding:16px 14px 14px}
+  .card{background:var(--card);border-radius:20px;padding:18px 16px;box-shadow:0 2px 0 var(--line)}
+  .card+.btn,.card+.card{margin-top:18px}
+
+  /* mostrador de rolos */
   .odo{display:flex;align-items:center;gap:10px}
-  .rolls{display:flex;gap:3px;padding:6px;border-radius:7px;background:#07090a;box-shadow:inset 0 2px 5px rgba(0,0,0,.8);flex:1;min-width:0;max-width:290px}
-  .roll{flex:1;max-width:42px;height:58px;border-radius:3px;display:grid;place-items:center;color:#f3f5f4;font:600 42px/1 "Barlow Condensed",Barlow,system-ui,sans-serif;
-    background:linear-gradient(#3a4043 0%,#15181a 22%,#15181a 78%,#3a4043 100%)}
-  .roll.red{background:linear-gradient(#e36a6e 0%,var(--red) 22%,var(--red) 78%,#e36a6e 100%)}
-  .unit{font-weight:600;font-size:20px;color:var(--soft)}
-  .send{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:14px;padding-top:12px;border-top:1.5px solid var(--line)}
-  .send span{color:var(--soft);font-size:15px}
-  .send b{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums}
+  .rolls{display:flex;gap:4px;padding:7px;border-radius:12px;background:#05090d;flex:1;min-width:0}
+  .roll{position:relative;flex:1;height:64px;border-radius:6px;display:grid;place-items:center;color:#fff;font:600 44px/1 var(--disp);
+    background:linear-gradient(#39424a 0%,var(--roll) 24%,var(--roll) 76%,#39424a 100%)}
+  .roll.red{background:linear-gradient(#f08a8d 0%,var(--red) 24%,var(--red) 76%,#f08a8d 100%)}
+  .roll.seek{color:rgba(255,255,255,.4)}
+  .roll.lock::after{content:"";position:absolute;left:22%;right:22%;bottom:5px;height:5px;border-radius:3px;background:#3ddc84}
+  .unit{font:600 20px var(--disp);color:var(--soft)}
+  .rolls.pop .roll{animation:pop .45s cubic-bezier(.2,1.6,.4,1) both}
+  .rolls.pop .roll:nth-child(2){animation-delay:.05s}.rolls.pop .roll:nth-child(3){animation-delay:.1s}
+  .rolls.pop .roll:nth-child(4){animation-delay:.15s}.rolls.pop .roll:nth-child(5){animation-delay:.2s}.rolls.pop .roll:nth-child(6){animation-delay:.25s}
+  @keyframes pop{0%{transform:translateY(-14px) scale(.9);opacity:0}100%{transform:none;opacity:1}}
 
-  .seq{padding:12px 14px;border-radius:8px;background:var(--paper);border:1.5px solid var(--line);font-weight:500;font-size:17px;letter-spacing:.04em;word-break:break-all;font-variant-numeric:tabular-nums}
-  .seq+.btn{margin-top:14px}
-  .cam{position:relative;margin-top:14px;border-radius:10px;overflow:hidden;background:#111;line-height:0}
-  .cam video{width:100%;height:auto;display:block}
-  .step .cam{margin-left:-46px}
-  .guide{position:absolute;left:5%;width:90%;aspect-ratio:2.6/1;top:50%;transform:translateY(-50%);border:2px dashed rgba(255,255,255,.85);border-radius:10px;box-shadow:0 0 0 2000px rgba(0,0,0,.35)}
-  #ov{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
-  .credit{margin:26px 0 0;font-size:13.5px;color:var(--soft)}
-  .credit a{color:var(--pipe-dk)}
-  .live{margin:12px 0 0;font-weight:600;font-size:22px;font-variant-numeric:tabular-nums;min-height:32px}
-  input[type=range]{width:100%;height:44px;accent-color:var(--pipe)}
-  .row .btn+.btn{margin-top:0}
-  .hide{display:none!important}
+  /* câmara: uma faixa baixa, só com a zona dos dígitos */
+  .cam{position:relative;aspect-ratio:2/1;border-radius:18px;overflow:hidden;background:#05090d}
+  .cam video,.cam canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .cam canvas{pointer-events:none}
+  .scanline{position:absolute;left:0;right:0;top:0;height:3px;background:#3ddc84;box-shadow:0 0 12px 2px rgba(61,220,132,.8);animation:scan 1.8s ease-in-out infinite alternate}
+  @keyframes scan{to{top:calc(100% - 3px)}}
+  .meter{display:flex;align-items:center;gap:10px;margin:12px 2px 10px;font:800 15.5px var(--body)}
+  .meter i{flex:1;height:10px;border-radius:5px;background:#cfe1ee;overflow:hidden}
+  .meter i b{display:block;height:100%;width:0;border-radius:5px;background:var(--green);transition:width .2s}
+  .camctl{display:flex;align-items:center;gap:10px;margin-top:14px}
+  .camctl input[type=range]{flex:1;height:44px;accent-color:var(--blue);min-width:0}
+  .camctl label{font:800 14px var(--body);color:var(--soft)}
+  .pill{min-height:44px;padding:0 14px;border-radius:999px;border:2px solid var(--line);background:var(--card);color:var(--ink);font:800 14.5px var(--body);cursor:pointer;white-space:nowrap}
+  .pill[aria-pressed=true]{background:var(--sun);border-color:var(--sun)}
+
+  #cv{display:block;max-width:100%;max-height:42vh;width:auto;height:auto;margin:0 auto 12px;border-radius:14px;touch-action:none;background:#05090d}
+  .tiles{display:flex;gap:5px;margin-top:12px}
+  .tiles:empty{display:none}
+  .tile{height:48px;width:auto;border-radius:6px}
+  .tilecap{margin:14px 0 0;font:800 13.5px var(--body);color:var(--soft)}
+
+  label.f{display:block;margin:16px 0 6px;font:800 14.5px var(--body);color:var(--soft)}
+  input[type=text],input[type=tel],input[type=number]{width:100%;height:52px;padding:0 14px;border:2px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);font:600 21px var(--disp);font-variant-numeric:tabular-nums}
+  input:focus{outline:none;border-color:var(--blue)}
+  .row{display:flex;gap:12px}.row>*{flex:1;min-width:0}
+  .sheet{margin-bottom:22px}
+  .sheet h2{font:600 22px var(--disp);margin:0}
+  .sheet input{font-size:18px;height:48px}
+
+  .send{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:16px;padding-top:14px;border-top:2px dashed var(--line)}
+  .send span{color:var(--soft);font-weight:700;font-size:15.5px}
+  .send b{font:700 36px/1 var(--disp)}
+  .delta{margin:12px 0 0;padding:10px 12px;border-radius:12px;background:#e3f6ea;color:#0b5a31;font-weight:700;font-size:15.5px}
+  .delta.bad{background:#fde7e7;color:#8f1a1e}
+  .delta:empty{display:none}
+
+  .seq{padding:14px;border-radius:14px;background:var(--card);border:2px dashed var(--line);font:600 19px var(--disp);letter-spacing:.03em;word-break:break-all;margin-bottom:18px}
+  .ask p{margin:0 0 14px;font:600 19px var(--disp)}
+
+  .win{text-align:center;position:relative;padding-top:8px}
+  .badge{width:112px;height:112px;margin:6px auto 16px;border-radius:50%;background:var(--green);display:grid;place-items:center;box-shadow:0 7px 0 var(--green-dk)}
+  .badge svg{width:60px;height:60px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:22px 0}
+  .stat{background:var(--card);border-radius:16px;padding:14px 6px;box-shadow:0 2px 0 var(--line)}
+  .stat b{display:block;font:700 26px/1.1 var(--disp)}
+  .stat span{font:800 12.5px var(--body);color:var(--soft)}
+  .rain{position:absolute;inset:-40px 0 auto 0;height:0;pointer-events:none}
+  .rain i{position:absolute;top:0;width:12px;height:16px;border-radius:50% 50% 50% 50%/62% 62% 38% 38%;background:var(--blue);opacity:0;animation:fall 1.5s ease-in forwards}
+  @keyframes fall{0%{transform:translateY(-30px) scale(.6);opacity:0}15%{opacity:.9}100%{transform:translateY(420px) scale(1);opacity:0}}
+
+  .credit{margin:34px 0 0;font-size:13px;color:var(--soft)}
+  .credit a{color:var(--blue-dk)}
+  @media (prefers-reduced-motion:reduce){.scanline,.rolls.pop .roll,.rain i{animation:none}.scanline{display:none}.btn{transition:none}}
 </style>
 </head>
 <body>
-<div class="wrap">
-<header class="top">
-  <div><h1>Leitura do contador</h1><p>Comunicação por telefone aos SMAS</p></div>
-  <button class="link" id="gear" type="button">Definições</button>
+<div class="app">
+<header class="bar">
+  <div class="brand"><svg viewBox="0 0 22 26" aria-hidden="true"><path d="M11 1C6 8 2 12.5 2 17a9 9 0 0 0 18 0C20 12.500 16 8 11 1z" fill="#1267e0"/><path d="M7 17a4 4 0 0 0 4 4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>Contador</div>
+  <div class="streak zero" id="streak"><svg viewBox="0 0 16 20" aria-hidden="true"><path d="M8 0c1 4 6 6 6 11.500a6 6 0 0 1-12 0C2 9 3.500 7.500 4.500 6c.5 2 1.500 3 2.500 3C7 6 6.500 3 8 0z" fill="currentColor"/></svg><span id="streakTxt">0 meses</span></div>
+  <button class="icon" id="gear" type="button" aria-label="Definições"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.500a7.600 7.600 0 0 0 0-3l2-1.500-2-3.400-2.300 1a7.600 7.600 0 0 0-2.600-1.500L14 2.500h-4l-.5 2.600a7.600 7.600 0 0 0-2.600 1.500l-2.300-1-2 3.400 2 1.500a7.600 7.600 0 0 0 0 3l-2 1.500 2 3.400 2.300-1a7.600 7.600 0 0 0 2.600 1.500l.5 2.600h4l.5-2.600a7.600 7.600 0 0 0 2.600-1.500l2.300 1 2-3.400z"/></svg></button>
 </header>
 
-<section class="panel" id="cfg">
+<nav class="steps" aria-label="Passos">
+  <button type="button" data-go="scan">1 · Ler</button>
+  <button type="button" data-go="confirm">2 · Confirmar</button>
+  <button type="button" data-go="call">3 · Ligar</button>
+</nav>
+
+<section class="card sheet" id="cfg">
   <h2>Definições</h2>
-  <label for="phone">Telefone dos SMAS</label>
+  <label class="f" for="phone">Telefone dos SMAS</label>
   <input type="tel" id="phone" placeholder="261000000">
-  <label for="opt">Opção do menu (opcional)</label>
+  <label class="f" for="opt">Opção do menu (opcional)</label>
   <input type="text" id="opt" inputmode="numeric" placeholder="2">
-  <label for="ref">Referência, com zeros à esquerda</label>
+  <label class="f" for="ref">Referência, com zeros à esquerda</label>
   <input type="text" id="ref" inputmode="numeric" placeholder="0001234567">
   <div class="row">
-    <div><label for="p0">Pausa inicial</label><input type="number" id="p0" min="0" max="30"></div>
-    <div><label for="p1">Pausa entre teclas</label><input type="number" id="p1" min="0" max="30"></div>
+    <div><label class="f" for="p0">Pausa inicial</label><input type="number" id="p0" min="0" max="30"></div>
+    <div><label class="f" for="p1">Pausa entre teclas</label><input type="number" id="p1" min="0" max="30"></div>
   </div>
   <p class="note">Cada unidade de pausa vale cerca de 2 segundos. Aumenta se o menu dos SMAS cortar os números.</p>
   <div class="row">
-    <div><label for="blk">Dígitos pretos</label><input type="number" id="blk" min="1" max="8"></div>
-    <div><label for="dec">Dígitos vermelhos</label><input type="number" id="dec" min="0" max="4"></div>
+    <div><label class="f" for="blk">Dígitos pretos</label><input type="number" id="blk" min="1" max="8"></div>
+    <div><label class="f" for="dec">Dígitos vermelhos</label><input type="number" id="dec" min="0" max="4"></div>
   </div>
-  <label for="rw">Largura de um rolo vermelho, em % de um preto</label>
+  <label class="f" for="rw">Largura de um rolo vermelho, em % de um preto</label>
   <input type="number" id="rw" min="50" max="120">
-  <label for="suf">Tecla final (opcional, por exemplo #)</label>
+  <label class="f" for="suf">Tecla final (opcional, por exemplo #)</label>
   <input type="text" id="suf">
-  <button class="btn" id="save" type="button" style="margin-top:18px">Guardar definições</button>
+  <button class="btn" id="save" type="button" style="margin-top:22px">Guardar definições</button>
 </section>
 
-<section class="step">
-  <span class="num">1</span>
-  <h2>Fotografar o contador</h2>
-  <input type="file" id="file" accept="image/*" capture="environment" class="hide">
-  <input type="file" id="file2" accept="image/*" class="hide">
-  <button class="btn" id="live" type="button">Abrir a câmara</button>
-  <button class="btn ghost" id="take2" type="button">Escolher foto da galeria</button>
-  <p class="note" id="camNote">Afasta o telemóvel uns 30 cm e aproxima com o zoom: assim a câmara foca melhor. Foge ao reflexo do vidro.</p>
+<main>
+<section id="st-scan">
+  <h1 id="scanTitle">Leitura do mês</h1>
+  <p class="sub" id="lastInfo"></p>
+
+  <div id="scanHome">
+    <input type="file" id="file" accept="image/*" capture="environment" class="hide">
+    <input type="file" id="file2" accept="image/*" class="hide">
+    <button class="btn" id="live" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.200" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3M7 12h10"/></svg>Ler com a câmara</button>
+    <button class="btn ghost" id="take2" type="button">Usar uma foto</button>
+    <button class="text" id="manual" type="button">Escrever a leitura à mão</button>
+    <p class="note" id="camNote"></p>
+  </div>
+
   <div id="camWrap" class="hide">
-    <div class="cam"><video id="vid" playsinline muted autoplay></video><div class="guide"></div><canvas id="ov"></canvas></div>
-    <p class="live" id="liveTxt" role="status"></p>
-    <p class="note">Basta ter os dígitos todos dentro da moldura tracejada. A app procura os rolos vermelhos e ajusta a grelha verde sozinha; quando a grelha assentar nos dígitos, a leitura fixa-se.</p>
-    <div id="zoomRow" class="hide"><label for="zoom">Zoom</label><input type="range" id="zoom"></div>
-    <button class="btn ghost" id="shoot" type="button" style="margin-top:12px">Tirar foto à mão</button>
-    <div class="row" style="margin-top:10px">
-      <button class="btn ghost hide" id="torch" type="button" aria-pressed="false">Ligar a luz</button>
-      <button class="btn ghost" id="camClose" type="button" style="margin-top:0">Fechar a câmara</button>
+    <div class="cam" id="cam"><video id="vid" playsinline muted autoplay></video><canvas id="ov"></canvas><span class="scanline"></span></div>
+    <div class="meter"><span id="liveTxt" role="status">À procura dos dígitos…</span><i><b id="liveBar"></b></i></div>
+    <div class="odo"><div class="rolls" id="liveRolls" aria-hidden="true"></div><span class="unit">m³</span></div>
+    <div class="camctl">
+      <span id="zoomRow" class="hide" style="display:contents"><label for="zoom">Zoom</label><input type="range" id="zoom"></span>
+      <button class="pill hide" id="torch" type="button" aria-pressed="false">Luz</button>
+    </div>
+    <p class="note">Mantém a fila de dígitos dentro da faixa. A grelha verde assenta sozinha e cada dígito fica marcado quando está seguro.</p>
+    <div class="row" style="margin-top:16px">
+      <button class="btn ghost" id="shoot" type="button">Foto manual</button>
+      <button class="btn ghost" id="camClose" type="button" style="margin-top:0">Fechar</button>
     </div>
   </div>
+
   <div id="cropWrap" class="hide">
     <canvas id="cv"></canvas>
-    <p class="note">O rectângulo verde tem de ficar justo à volta de todos os dígitos, do primeiro preto ao último vermelho. Arrasta na foto para o redesenhar.</p>
-    <button class="btn" id="ocr" type="button" style="margin-top:12px">Ler dígitos</button>
-    <p class="note" id="status" role="status"></p>
-    <div id="prev"></div>
+    <p class="note" style="margin:0 0 14px">Arrasta na foto para marcar a fila de dígitos, do primeiro preto ao último vermelho. Não tem de ficar perfeito.</p>
+    <button class="btn" id="ocr" type="button">Ler dígitos</button>
+    <button class="btn ghost" id="cropClose" type="button">Voltar</button>
+    <p class="warn" id="status" role="status"></p>
   </div>
 </section>
 
-<section class="step">
-  <span class="num">2</span>
-  <h2>Confirmar a leitura</h2>
-  <div class="dial">
+<section id="st-confirm" class="hide">
+  <h1>Está certo?</h1>
+  <p class="sub">Compara com o contador e corrige o que for preciso.</p>
+  <div class="card">
     <div class="odo"><div class="rolls" id="rolls" aria-hidden="true"></div><span class="unit">m³</span></div>
-    <label for="val">Leitura no contador</label>
+    <div id="tileBox" class="hide"><p class="tilecap">O que a câmara viu</p><div class="tiles" id="prev"></div></div>
+    <p class="note" id="readMsg"></p>
+    <label class="f" for="val">Leitura no contador</label>
     <input type="text" id="val" inputmode="decimal" placeholder="406,91">
-    <div class="send"><span>Valor a comunicar, arredondado</span><b id="final">—</b></div>
+    <div class="send"><span>Valor a comunicar</span><b id="final">—</b></div>
+    <p class="delta" id="delta"></p>
   </div>
+  <button class="btn green" id="toCall" type="button">Confirmar leitura</button>
+  <button class="btn ghost" id="rescan" type="button">Ler outra vez</button>
 </section>
 
-<section class="step">
-  <span class="num">3</span>
-  <h2>Ligar aos SMAS</h2>
+<section id="st-call" class="hide">
+  <h1>Liga aos SMAS</h1>
+  <p class="sub">O marcador abre com tudo preenchido. Só tens de carregar em chamar.</p>
   <div class="seq" id="dial">—</div>
-  <a class="btn" id="call" href="#">Ligar aos SMAS</a>
+  <a class="btn" id="call" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.200" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.500 1.500a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>Ligar aos SMAS</a>
   <button class="btn ghost" id="copy" type="button">Copiar sequência</button>
   <p class="warn" id="callMsg" role="alert"></p>
-  <p class="note">O marcador abre já preenchido. Confirma e carrega em chamar.</p>
+  <div class="card ask hide" id="askDone" style="margin-top:22px">
+    <p>Os SMAS aceitaram a leitura?</p>
+    <button class="btn green" id="done" type="button">Sim, leitura comunicada</button>
+    <button class="text" id="notDone" type="button">Ainda não</button>
+  </div>
 </section>
+
+<section id="st-done" class="hide win">
+  <div class="rain" id="rain" aria-hidden="true"></div>
+  <div class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg></div>
+  <h1 id="doneTitle">Leitura comunicada</h1>
+  <p class="sub" id="doneSub" style="margin-bottom:0"></p>
+  <div class="stats">
+    <div class="stat"><b id="stVal">—</b><span>m³ comunicados</span></div>
+    <div class="stat"><b id="stUse">—</b><span>m³ desde a última</span></div>
+    <div class="stat"><b id="stStreak">—</b><span>meses seguidos</span></div>
+  </div>
+  <button class="btn" id="again" type="button">Concluir</button>
+</section>
+</main>
+
 <p class="credit">A leitura dos dígitos usa um modelo do projecto <a href="https://github.com/jomjol/AI-on-the-edge-device">AI-on-the-edge-device</a>, livre para uso privado e não comercial.</p>
 </div>
 
@@ -183,7 +264,46 @@ $('save').onclick=()=>{readCfg();try{localStorage.setItem('contadorCfg',JSON.str
 $('gear').onclick=()=>{$('cfg').classList.toggle('hide');if(!$('cfg').classList.contains('hide'))$('cfg').scrollIntoView({behavior:'smooth'})};
 if(S.phone&&S.ref)$('cfg').classList.add('hide');
 
-/* ---------- reading parse / round ---------- */
+/* ---------- histórico neste telemóvel: leituras comunicadas e meses seguidos ---------- */
+let H=[];
+try{H=JSON.parse(localStorage.getItem('contadorHist')||'[]')||[]}catch(e){}
+const ym=d=>d.slice(0,7);
+const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+const fmtDay=s=>{const p=s.split('-');return new Date(+p[0],+p[1]-1,+p[2]).toLocaleDateString('pt-PT',{day:'numeric',month:'long'})};
+const monthName=()=>new Date().toLocaleDateString('pt-PT',{month:'long'});
+const lastEntry=()=>H.length?H[H.length-1]:null;
+function streak(){
+  const have=new Set(H.map(e=>ym(e.d)));const d=new Date();d.setDate(1);
+  const key=()=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  if(!have.has(key()))d.setMonth(d.getMonth()-1);
+  let n=0;while(have.has(key())){n++;d.setMonth(d.getMonth()-1)}
+  return n;
+}
+function renderHome(){
+  const n=streak(),l=lastEntry(),doneNow=l&&ym(l.d)===ym(today());
+  $('streakTxt').textContent=n+(n===1?' mês':' meses');$('streak').classList.toggle('zero',!n);
+  $('scanTitle').textContent=doneNow?'A leitura de '+monthName()+' já está comunicada':'Leitura de '+monthName();
+  $('lastInfo').textContent=l?'Última leitura comunicada: '+l.v+' m³, a '+fmtDay(l.d)+'.':'Aponta a câmara ao contador para começar.';
+}
+
+/* ---------- passos ---------- */
+const STAGES=['scan','confirm','call','done'];let stage='scan';
+function go(s){
+  stopCam();
+  stage=s;STAGES.forEach(x=>$('st-'+x).classList.toggle('hide',x!==s));
+  const idx=STAGES.indexOf(s),has=parseReading($('val').value)!=null;
+  document.querySelectorAll('.steps button').forEach((b,i)=>{
+    b.classList.toggle('on',i===idx);b.classList.toggle('ok',i<idx||s==='done');
+    b.disabled=(i>0&&!has)||s==='done';
+  });
+  if(s==='scan'){renderHome();scanMode('home')}
+  if(s==='call')$('askDone').classList.add('hide');
+  window.scrollTo(0,0);
+}
+document.querySelectorAll('.steps button').forEach(b=>b.onclick=()=>go(b.dataset.go));
+function scanMode(m){$('scanHome').classList.toggle('hide',m!=='home');$('camWrap').classList.toggle('hide',m!=='cam');$('cropWrap').classList.toggle('hide',m!=='crop')}
+
+/* ---------- leitura, arredondamento e sequência a marcar ---------- */
 function parseReading(txt){
   txt=(txt||'').trim();
   if(!txt)return null;
@@ -194,23 +314,15 @@ function parseReading(txt){
   if(!n)return parseInt(d,10);
   return parseInt(d,10)/Math.pow(10,n);
 }
-function update(){
-  const f=parseReading($('val').value);
-  const fin=f==null?null:Math.round(f);
-  $('final').textContent=fin==null?'—':String(fin);
-  renderRolls(f);
-  const seq=buildSeq(fin);
-  $('dial').textContent=seq||'Falta a leitura ou as definições';
-  const c=$('call');
-  if(seq){c.href='tel:'+seq.replace(/#/g,'%23');c.classList.remove('off');$('callMsg').textContent=''}else{c.href='#';c.classList.add('off')}
+function rollsHTML(digs,cls){
+  const blk=Math.max(1,S.blk);let h='';
+  digs.forEach((d,i)=>{h+='<span class="roll'+(i>=blk?' red':'')+(cls?' '+cls[i]:'')+'">'+d+'</span>'});return h;
 }
 function renderRolls(f){
   const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec);let a='',b='';
-  if(f!=null&&f>=0){const p=f.toFixed(dec).split('.');a=p[0].padStart(blk,'0');b=p[1]||''}
-  let h='';
-  for(let i=0;i<Math.max(blk,a.length);i++)h+='<span class="roll">'+(a[i]||'')+'</span>';
-  for(let i=0;i<dec;i++)h+='<span class="roll red">'+(b[i]||'')+'</span>';
-  $('rolls').innerHTML=h;
+  if(f!=null&&f>=0){const p=f.toFixed(dec).split('.');a=p[0].padStart(blk,'0').slice(-blk);b=p[1]||''}
+  const digs=[];for(let i=0;i<blk;i++)digs.push(a[i]||'');for(let i=0;i<dec;i++)digs.push(b[i]||'');
+  $('rolls').innerHTML=rollsHTML(digs);
 }
 function buildSeq(fin){
   if(fin==null||!S.phone||!S.ref)return '';
@@ -220,19 +332,57 @@ function buildSeq(fin){
   s+=c(S.opt?S.p1:S.p0)+S.ref+c(S.p1)+fin+(S.suf?c(S.p1)+S.suf:'');
   return s;
 }
+let FIN=null;
+function update(){
+  const f=parseReading($('val').value);
+  FIN=f==null?null:Math.round(f);
+  $('final').textContent=FIN==null?'—':FIN+' m³';
+  renderRolls(f);
+  const l=lastEntry(),dl=$('delta');dl.className='delta';dl.textContent='';
+  if(FIN!=null&&l){
+    if(FIN<l.v){dl.classList.add('bad');dl.textContent='É menor do que a última leitura comunicada ('+l.v+' m³). Confirma os dígitos.'}
+    else dl.textContent='Consumo desde '+fmtDay(l.d)+': '+(FIN-l.v)+' m³.';
+  }
+  $('toCall').disabled=FIN==null;
+  const seq=buildSeq(FIN);
+  $('dial').textContent=seq||'Falta o telefone ou a referência';
+  const c=$('call');
+  if(seq){c.href='tel:'+seq.replace(/#/g,'%23');c.classList.remove('off');$('callMsg').textContent=''}else{c.href='#';c.classList.add('off')}
+  document.querySelectorAll('.steps button').forEach((b,i)=>{if(i>0&&stage!=='done')b.disabled=FIN==null});
+}
 $('val').oninput=update;
-$('call').onclick=e=>{if($('call').getAttribute('href')==='#'){e.preventDefault();$('callMsg').textContent=!S.phone||!S.ref?'Falta o telefone ou a referência. Abre as Definições.':'Falta a leitura. Escreve-a no passo 2.'}};
+$('manual').onclick=()=>{$('tileBox').classList.add('hide');$('readMsg').textContent='';go('confirm');$('val').focus()};
+$('toCall').onclick=()=>{if(FIN!=null)go('call')};
+$('rescan').onclick=()=>go('scan');
+$('call').onclick=e=>{
+  if($('call').getAttribute('href')==='#'){e.preventDefault();$('callMsg').textContent='Falta o telefone ou a referência. Abre as Definições no canto superior direito.';return}
+  setTimeout(()=>$('askDone').classList.remove('hide'),600);
+};
 $('copy').onclick=async()=>{try{await navigator.clipboard.writeText($('dial').textContent);$('copy').textContent='Sequência copiada'}catch(e){$('copy').textContent='Não foi possível copiar'}setTimeout(()=>$('copy').textContent='Copiar sequência',1500)};
-update();
+$('notDone').onclick=()=>$('askDone').classList.add('hide');
+$('done').onclick=()=>{
+  if(FIN==null)return;
+  const prev=lastEntry(),t=today();
+  const before=H.filter(e=>ym(e.d)!==ym(t)),base=before.length?before[before.length-1]:null;
+  H=before.concat([{d:t,v:FIN}]);
+  try{localStorage.setItem('contadorHist',JSON.stringify(H.slice(-60)))}catch(e){}
+  $('doneTitle').textContent='Leitura de '+monthName()+' comunicada';
+  $('doneSub').textContent=base?'A anterior foi a '+fmtDay(base.d)+'.':'É a primeira leitura registada neste telemóvel.';
+  $('stVal').textContent=FIN;$('stUse').textContent=base&&FIN>=base.v?FIN-base.v:'—';$('stStreak').textContent=streak();
+  let h='';for(let i=0;i<16;i++)h+='<i style="left:'+(4+Math.random()*90)+'%;animation-delay:'+(Math.random()*.7).toFixed(2)+'s"></i>';
+  $('rain').innerHTML=h;
+  renderHome();go('done');
+};
+$('again').onclick=()=>{$('val').value='';update();go('scan')};
 
-/* ---------- photo + crop ---------- */
+/* ---------- foto e rectângulo ---------- */
 const cv=$('cv'),ctx=cv.getContext('2d');
 let bmp=null,rect=null,drag=null;
 $('take2').onclick=()=>$('file2').click();
+$('cropClose').onclick=()=>scanMode('home');
 function showPhoto(src,w,h,r){
   bmp=src;cv.width=w;cv.height=h;rect=r||null;draw();
-  $('cropWrap').classList.remove('hide');$('status').textContent='';$('prev').innerHTML='';
-  cv.scrollIntoView({behavior:'smooth',block:'center'});
+  $('status').textContent='';scanMode('crop');
 }
 async function onPhoto(e){
   const f=e.target.files[0];if(!f)return;let b;
@@ -240,23 +390,48 @@ async function onPhoto(e){
     b=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(f)})}
   readCfg();showPhoto(b,b.width,b.height,guideRect(b.width,b.height));e.target.value='';
 }
+$('file').onchange=onPhoto;$('file2').onchange=onPhoto;
+function draw(){
+  ctx.drawImage(bmp,0,0);
+  if(rect){
+    ctx.fillStyle='rgba(0,0,0,.45)';
+    ctx.fillRect(0,0,cv.width,rect.y);
+    ctx.fillRect(0,rect.y+rect.h,cv.width,cv.height-rect.y-rect.h);
+    ctx.fillRect(0,rect.y,rect.x,rect.h);
+    ctx.fillRect(rect.x+rect.w,rect.y,cv.width-rect.x-rect.w,rect.h);
+    ctx.strokeStyle='#3ddc84';ctx.lineWidth=Math.max(3,cv.width/300);
+    ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
+  }
+}
+function pos(ev){const r=cv.getBoundingClientRect();return{x:(ev.clientX-r.left)*cv.width/r.width,y:(ev.clientY-r.top)*cv.height/r.height}}
+cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag=pos(e);rect={x:drag.x,y:drag.y,w:1,h:1};draw()});
+cv.addEventListener('pointermove',e=>{if(!drag)return;const p=pos(e);
+  rect={x:Math.min(drag.x,p.x),y:Math.min(drag.y,p.y),w:Math.abs(p.x-drag.x),h:Math.abs(p.y-drag.y)};draw()});
+cv.addEventListener('pointerup',()=>{drag=null});
 
 /* ---------- câmara dentro da app ---------- */
-let stream=null,track=null,torchOn=false;
-let liveRect=null;
-function stopCam(){const o=$('ov');o.getContext('2d').clearRect(0,0,o.width,o.height);if(stream)stream.getTracks().forEach(t=>t.stop());stream=track=null;torchOn=false;$('camWrap').classList.add('hide')}
+let stream=null,track=null,torchOn=false,liveRect=null;
+function stopCam(){
+  const o=$('ov');o.getContext('2d').clearRect(0,0,o.width,o.height);
+  if(stream)stream.getTracks().forEach(t=>t.stop());stream=track=null;torchOn=false;
+  if(!$('camWrap').classList.contains('hide'))scanMode('home');
+}
 $('camClose').onclick=stopCam;
+// zona do vídeo que se vê na faixa (o resto fica cortado)
+function visRect(w,h){const el=$('cam'),A=(el.clientWidth/el.clientHeight)||2;let vw=w,vh=w/A;if(vh>h){vh=h;vw=h*A}return{x:(w-vw)/2,y:(h-vh)/2,w:vw,h:vh}}
+function grabFrame(){const v=$('vid'),w=v.videoWidth,h=v.videoHeight;if(!w||!h)return null;
+  const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(v,0,0,w,h);return c}
 $('live').onclick=async()=>{
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){$('file').click();return}
   try{
     stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:2560},height:{ideal:1440}}});
   }catch(err){
-    $('camNote').textContent=err&&err.name==='NotAllowedError'?'A app não tem permissão para a câmara. Autoriza-a nas definições do site ou escolhe uma foto da galeria.':'Não foi possível abrir a câmara aqui. Abriu-se a câmara simples em alternativa.';
+    $('camNote').textContent=err&&err.name==='NotAllowedError'?'A app não tem permissão para a câmara. Autoriza-a nas definições do site, ou usa uma foto.':'Não foi possível abrir a câmara aqui. Abriu-se a câmara do telemóvel em alternativa.';
     if(!(err&&err.name==='NotAllowedError'))$('file').click();
     return;
   }
   track=stream.getVideoTracks()[0];
-  const v=$('vid');v.srcObject=stream;$('camWrap').classList.remove('hide');$('cropWrap').classList.add('hide');
+  const v=$('vid');v.srcObject=stream;scanMode('cam');
   try{await v.play()}catch(e){}
   let caps={};try{caps=track.getCapabilities?track.getCapabilities():{}}catch(e){}
   try{if(caps.focusMode&&caps.focusMode.includes('continuous'))await track.applyConstraints({advanced:[{focusMode:'continuous'}]})}catch(e){}
@@ -268,37 +443,15 @@ $('live').onclick=async()=>{
     z.oninput=setZ;setZ();
   }else $('zoomRow').classList.add('hide');
   const tb=$('torch');
-  if(caps.torch){tb.classList.remove('hide');tb.textContent='Ligar a luz';tb.setAttribute('aria-pressed','false');
-    tb.onclick=async()=>{try{torchOn=!torchOn;await track.applyConstraints({advanced:[{torch:torchOn}]});
-      tb.textContent=torchOn?'Desligar a luz':'Ligar a luz';tb.setAttribute('aria-pressed',String(torchOn))}catch(e){torchOn=false}};
+  if(caps.torch){tb.classList.remove('hide');tb.setAttribute('aria-pressed','false');
+    tb.onclick=async()=>{try{torchOn=!torchOn;await track.applyConstraints({advanced:[{torch:torchOn}]});tb.setAttribute('aria-pressed',String(torchOn))}catch(e){torchOn=false}};
   }else tb.classList.add('hide');
-  $('camWrap').scrollIntoView({behavior:'smooth',block:'start'});
-  readCfg();$('liveTxt').textContent='À procura dos dígitos…';liveLoop(stream);
+  readCfg();liveLoop(stream);
 };
 $('shoot').onclick=()=>{
-  const v=$('vid'),w=v.videoWidth,h=v.videoHeight;if(!w||!h)return;
-  const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(v,0,0,w,h);
-  stopCam();
-  showPhoto(c,w,h,liveRect||guideRect(w,h));
+  const c=grabFrame();if(!c)return;const w=c.width,h=c.height,r=liveRect||guideRect(w,h);
+  stopCam();showPhoto(c,w,h,r);
 };
-$('file').onchange=onPhoto;$('file2').onchange=onPhoto;
-function draw(){
-  ctx.drawImage(bmp,0,0);
-  if(rect){
-    ctx.fillStyle='rgba(0,0,0,.45)';
-    ctx.fillRect(0,0,cv.width,rect.y);
-    ctx.fillRect(0,rect.y+rect.h,cv.width,cv.height-rect.y-rect.h);
-    ctx.fillRect(0,rect.y,rect.x,rect.h);
-    ctx.fillRect(rect.x+rect.w,rect.y,cv.width-rect.x-rect.w,rect.h);
-    ctx.strokeStyle='#00e676';ctx.lineWidth=Math.max(3,cv.width/300);
-    ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
-  }
-}
-function pos(ev){const r=cv.getBoundingClientRect();return{x:(ev.clientX-r.left)*cv.width/r.width,y:(ev.clientY-r.top)*cv.height/r.height}}
-cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag=pos(e);rect={x:drag.x,y:drag.y,w:1,h:1};draw()});
-cv.addEventListener('pointermove',e=>{if(!drag)return;const p=pos(e);
-  rect={x:Math.min(drag.x,p.x),y:Math.min(drag.y,p.y),w:Math.abs(p.x-drag.x),h:Math.abs(p.y-drag.y)};draw()});
-cv.addEventListener('pointerup',()=>{drag=null});
 
 /* ---------- geometria: um rolo preto mede 1, um vermelho mede rw% ---------- */
 const RR=()=>Math.max(.5,Math.min(1.2,(S.rw||84)/100));
@@ -307,7 +460,8 @@ function guideRect(w,h){const gw=.86*w,gh=Math.min(h*.9,gw/units());return{x:.07
 function centers(r){
   const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec),p=r.p||r.w/units(),q=r.rp||RR()*p,cx=[];
   for(let i=0;i<blk;i++)cx.push(r.x+p*(i+.5));
-  for(let j=0;j<dec;j++)cx.push(r.x+p*blk+q*(j+.5));
+  const rx=r.rx||r.x+p*blk;
+  for(let j=0;j<dec;j++)cx.push(rx+q*(j+.5));
   return{p,cx,cy:r.y+r.h/2,blk,dec};
 }
 const searchRect=(w,h)=>{const sw=.9*w,sh=Math.min(h,sw/2.6);return{x:.05*w,y:(h-sh)/2,w:sw,h:sh}};
@@ -354,7 +508,9 @@ function locate(src,sr){
     for(let lag=l0;lag<=l1;lag++){const c2=ac(lag);if(c2>bc){bc=c2;bl=lag}}
     if(bc>.2&&bl>l0&&bl<l1){const a=ac(bl-1),b=bc,c2=ac(bl+1),den=a-2*b+c2;p=bl+(den<0?.5*(a-c2)/den:0)}
    }}
-  const r={x:sr.x+(xb-blk*p)/k,y:sr.y+(cy-p/2)/k,w:(blk*p+xr-xb)/k,h:p/k,p:p/k,rp:(xr-xb)/dec/k};
+  // o bloco vermelho começa um pouco depois do fim do último rolo preto (aro entre rolos)
+  const xk=xb-.09*p;
+  const r={x:sr.x+(xk-blk*p)/k,y:sr.y+(cy-p/2)/k,w:(blk*p+xr-xk)/k,h:p/k,p:p/k,rp:(xr-xb)/dec/k,rx:sr.x+xb/k};
   return r.x<sr.x-.02*sr.w?null:r;
 }
 function drawOverlay(w,h,r,found){
@@ -362,7 +518,7 @@ function drawOverlay(w,h,r,found){
   const c=o.getContext('2d');c.clearRect(0,0,w,h);if(!r)return;
   const g=centers(r);c.lineWidth=Math.max(2,w/320);c.strokeStyle=found?'#00e676':'rgba(255,255,255,.7)';
   c.strokeRect(r.x,r.y,r.w,r.h);c.beginPath();
-  for(let i=1;i<g.cx.length;i++){const x=i<=g.blk?r.x+g.p*i:r.x+g.p*g.blk+(r.rp||RR()*g.p)*(i-g.blk);c.moveTo(x,r.y);c.lineTo(x,r.y+r.h)}
+  for(let i=1;i<g.cx.length;i++){const x=i<=g.blk?r.x+g.p*i:(r.rx||r.x+g.p*g.blk)+(r.rp||RR()*g.p)*(i-g.blk);c.moveTo(x,r.y);c.lineTo(x,r.y+r.h)}
   c.stroke();
 }
 
@@ -449,48 +605,57 @@ function showTiles(src,r){
   const g=centers(r),w=.68*g.p,h=1.12*g.p,pv=$('prev');pv.innerHTML='';
   g.cx.forEach(cx=>{const c=document.createElement('canvas');c.width=40;c.height=64;
     c.getContext('2d').drawImage(src,cx-w/2,g.cy-h/2,w,h,0,0,40,64);
-    c.style.cssText='height:56px;width:auto;border:1.5px solid #c3cbc8;border-radius:4px';pv.appendChild(c)});
+    c.className='tile';pv.appendChild(c)});
 }
 function fmt(d,blk,dec){return d.slice(0,blk).join('')+(dec?','+d.slice(blk).join(''):'')}
+function accept(digs,g,how,doubt){
+  const txt=fmt(digs,g.blk,g.dec);
+  showTiles(bmp,rect);$('tileBox').classList.remove('hide');
+  $('val').value=txt;update();
+  $('readMsg').textContent=how+(doubt?' Alguns dígitos ficaram duvidosos: confirma-os.':'');
+  go('confirm');
+  const r=$('rolls');r.classList.remove('pop');void r.offsetWidth;r.classList.add('pop');
+}
 $('ocr').onclick=async()=>{
   if(!bmp)return;
-  if(!rect||rect.w<cv.width*.15||rect.h<cv.height*.02){$('status').textContent='O rectângulo verde está pequeno demais ou fora dos dígitos. Arrasta na foto, do canto superior esquerdo ao inferior direito dos dígitos.';return}
-  readCfg();
-  $('ocr').disabled=true;$('status').textContent='A ler…';
-  if(!await loadNet()){$('status').textContent='Não foi possível carregar o leitor de dígitos. Verifica a internet ou escreve a leitura no passo 2.';$('ocr').disabled=false;return}
+  if(!rect||rect.w<cv.width*.15||rect.h<cv.height*.02){$('status').textContent='A marca verde está pequena demais ou fora dos dígitos. Arrasta na foto, do primeiro dígito ao último.';return}
+  readCfg();$('ocr').disabled=true;$('status').textContent='';
+  if(!await loadNet()){$('status').textContent='Não foi possível carregar o leitor de dígitos. Verifica a internet ou escreve a leitura à mão.';$('ocr').disabled=false;return}
   {const e=.15,sr={x:Math.max(0,rect.x-e*rect.w),y:Math.max(0,rect.y-rect.h),w:rect.w*(1+2*e),h:rect.h*3};
    sr.w=Math.min(sr.w,cv.width-sr.x);sr.h=Math.min(sr.h,cv.height-sr.y);
    const f=locate(bmp,sr);if(f){rect=f;draw()}}
-  const res=readDigits(bmp,rect),ms=res.votes.map(mode),txt=fmt(ms.map(m=>m.v),res.g.blk,res.g.dec);
-  showTiles(bmp,rect);
-  $('val').value=txt;update();
-  $('status').textContent='Lido: '+txt+(ms.every(m=>m.n>=2)?'. ':'. Alguns dígitos ficaram duvidosos. ')+'Confirma no passo 2 com o que vês no contador. Em baixo estão os recortes que foram lidos.';
-  $('val').scrollIntoView({behavior:'smooth',block:'center'});
+  const res=readDigits(bmp,rect),ms=res.votes.map(mode);
   $('ocr').disabled=false;
+  accept(ms.map(m=>m.v),res.g,'Lido da foto.',!ms.every(m=>m.n>=2));
 };
 
-/* ---------- leitura ao vivo: junta os votos de várias imagens e fixa quando há maioria clara ---------- */
+/* ---------- leitura ao vivo: junta os votos de várias imagens; cada dígito fica marcado quando está seguro ---------- */
 async function liveLoop(my){
-  const out=$('liveTxt');
-  if(!await loadNet()){out.textContent='Não foi possível carregar o leitor de dígitos. Tira a foto e escreve a leitura.';return}
+  const out=$('liveTxt'),bar=$('liveBar');
+  {const d=[];for(let i=0;i<Math.max(1,S.blk)+Math.max(0,S.dec);i++)d.push('');$('liveRolls').innerHTML=rollsHTML(d);bar.style.width='0'}
+  out.textContent='A preparar o leitor…';
+  if(!await loadNet()){out.textContent='Leitor indisponível. Tira uma foto manual.';return}
   const v=$('vid');let hist=null,frames=0;
   while(stream===my){
     const w=v.videoWidth,h=v.videoHeight;
     if(w&&h){
-      const f=locate(v,searchRect(w,h)),r=f||guideRect(w,h),res=readDigits(v,r),n=res.votes.length;
+      const vis=visRect(w,h),sr={x:vis.x+.02*vis.w,y:vis.y+.03*vis.h,w:.96*vis.w,h:.94*vis.h};
+      const f=locate(v,sr),gw=.86*vis.w,gh=Math.min(.8*vis.h,gw/units());
+      const r=f||{x:vis.x+(vis.w-gw)/2,y:vis.y+(vis.h-gh)/2,w:gw,h:gh};
+      const res=readDigits(v,r),n=res.votes.length;
       liveRect=r;drawOverlay(w,h,r,!!f);
       if(!hist||hist.length!==n){hist=res.votes.map(()=>[]);frames=0}
       res.votes.forEach((vt,i)=>{hist[i].push(...vt);if(hist[i].length>15)hist[i].splice(0,hist[i].length-15)});
       frames++;
-      const ms=hist.map(mode),txt=fmt(ms.map(m=>m.v),res.g.blk,res.g.dec);
-      out.textContent='A ler: '+txt;
       // o último vermelho está sempre a rodar: não entra na decisão
-      const need=res.g.dec>1?n-1:n;
-      if(frames>=5&&ms.slice(0,need).every((m,i)=>hist[i].length>=15&&m.n>=10)){
-        $('shoot').onclick();showTiles(bmp,rect);
-        $('val').value=txt;update();
-        $('status').textContent='Lido ao vivo: '+txt+'. Confirma no passo 2 com o que vês no contador.';
-        $('val').scrollIntoView({behavior:'smooth',block:'center'});
+      const ms=hist.map(mode),need=res.g.dec>1?n-1:n;
+      const ok=ms.map((m,i)=>hist[i].length>=15&&m.n>=10),k=ok.slice(0,need).filter(Boolean).length;
+      $('liveRolls').innerHTML=rollsHTML(ms.map(m=>m.v),ok.map((o,i)=>o||i>=need?'lock':'seek'));
+      bar.style.width=(100*k/need)+'%';
+      out.textContent=f?k+' de '+need+' dígitos seguros':'À procura dos rolos vermelhos…';
+      if(frames>=5&&k===need){
+        const c=grabFrame();bmp=c;rect=r;stopCam();
+        accept(ms.map(m=>m.v),res.g,'Lido pela câmara.',false);
         return;
       }
     }
@@ -498,6 +663,7 @@ async function liveLoop(my){
   }
 }
 
+update();go('scan');
 if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
 </body>
