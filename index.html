@@ -189,7 +189,7 @@
       <span id="zoomRow" class="hide" style="display:contents"><label for="zoom">Zoom</label><input type="range" id="zoom"></span>
       <button class="pill hide" id="torch" type="button" aria-pressed="false">Luz</button>
     </div>
-    <p class="note">Mantém a fila de dígitos dentro da faixa. A grelha verde assenta sozinha e cada dígito fica marcado quando está seguro.</p>
+    <p class="note">Mantém a fila de dígitos dentro da faixa, de frente e o mais nítida possível. A grelha assenta sozinha; quando a mesma leitura aparecer três vezes, fica fixada.</p>
     <div class="row" style="margin-top:16px">
       <button class="btn ghost" id="shoot" type="button">Foto manual</button>
       <button class="btn ghost" id="camClose" type="button" style="margin-top:0">Fechar</button>
@@ -198,7 +198,7 @@
 
   <div id="cropWrap" class="hide">
     <canvas id="cv"></canvas>
-    <p class="note" style="margin:0 0 14px">Arrasta na foto para marcar a fila de dígitos, do primeiro preto ao último vermelho. Não tem de ficar perfeito.</p>
+    <p class="note" style="margin:0 0 14px">Toca em Ler dígitos: a app procura a fila sozinha. Se falhar, arrasta na foto à volta dos dígitos e tenta outra vez.</p>
     <button class="btn" id="ocr" type="button">Ler dígitos</button>
     <button class="btn ghost" id="cropClose" type="button">Voltar</button>
     <p class="warn" id="status" role="status"></p>
@@ -341,6 +341,7 @@ function update(){
   const l=lastEntry(),dl=$('delta');dl.className='delta';dl.textContent='';
   if(FIN!=null&&l){
     if(FIN<l.v){dl.classList.add('bad');dl.textContent='É menor do que a última leitura comunicada ('+l.v+' m³). Confirma os dígitos.'}
+    else if(FIN-l.v>150){dl.classList.add('bad');dl.textContent='É muito maior do que a última leitura comunicada ('+l.v+' m³). Confirma os dígitos.'}
     else dl.textContent='Consumo desde '+fmtDay(l.d)+': '+(FIN-l.v)+' m³.';
   }
   $('toCall').disabled=FIN==null;
@@ -388,7 +389,7 @@ async function onPhoto(e){
   const f=e.target.files[0];if(!f)return;let b;
   try{b=await createImageBitmap(f,{imageOrientation:'from-image'})}catch(err){
     b=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(f)})}
-  readCfg();showPhoto(b,b.width,b.height,guideRect(b.width,b.height));e.target.value='';
+  readCfg();showPhoto(b,b.width,b.height,null);e.target.value='';
 }
 $('file').onchange=onPhoto;$('file2').onchange=onPhoto;
 function draw(){
@@ -410,7 +411,7 @@ cv.addEventListener('pointermove',e=>{if(!drag)return;const p=pos(e);
 cv.addEventListener('pointerup',()=>{drag=null});
 
 /* ---------- câmara dentro da app ---------- */
-let stream=null,track=null,torchOn=false,liveRect=null;
+let stream=null,track=null,torchOn=false;
 function stopCam(){
   const o=$('ov');o.getContext('2d').clearRect(0,0,o.width,o.height);
   if(stream)stream.getTracks().forEach(t=>t.stop());stream=track=null;torchOn=false;
@@ -449,78 +450,140 @@ $('live').onclick=async()=>{
   readCfg();liveLoop(stream);
 };
 $('shoot').onclick=()=>{
-  const c=grabFrame();if(!c)return;const w=c.width,h=c.height,r=liveRect||guideRect(w,h);
-  stopCam();showPhoto(c,w,h,r);
+  const c=grabFrame();if(!c)return;
+  stopCam();showPhoto(c,c.width,c.height,null);
 };
 
-/* ---------- geometria: um rolo preto mede 1, um vermelho mede rw% ---------- */
+/* ---------- localizar a fila de dígitos: procura os rolos vermelhos, a faixa escura à esquerda e a inclinação ---------- */
 const RR=()=>Math.max(.5,Math.min(1.2,(S.rw||84)/100));
-const units=()=>Math.max(1,S.blk)+RR()*Math.max(0,S.dec);
-function guideRect(w,h){const gw=.86*w,gh=Math.min(h*.9,gw/units());return{x:.07*w,y:(h-gh)/2,w:gw,h:gh}}
-function centers(r){
-  const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec),p=r.p||r.w/units(),q=r.rp||RR()*p,cx=[];
-  for(let i=0;i<blk;i++)cx.push(r.x+p*(i+.5));
-  const rx=r.rx||r.x+p*blk;
-  for(let j=0;j<dec;j++)cx.push(rx+q*(j+.5));
-  return{p,cx,cy:r.y+r.h/2,blk,dec};
+function regionPixels(src,sr,maxW){
+  const k=Math.min(1,maxW/sr.w),W=Math.max(8,Math.round(sr.w*k)),H=Math.max(8,Math.round(sr.h*k));
+  const c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d',{willReadFrequently:true});
+  x.drawImage(src,sr.x,sr.y,sr.w,sr.h,0,0,W,H);
+  const d=x.getImageData(0,0,W,H).data,n=W*H,red=new Float32Array(n),lum=new Float32Array(n);
+  for(let i=0;i<n;i++){const r=d[i*4],g=d[i*4+1],b=d[i*4+2];red[i]=r-Math.max(g,b);lum[i]=.3*r+.59*g+.11*b}
+  return{W,H,k,red,lum};
 }
-const searchRect=(w,h)=>{const sw=.9*w,sh=Math.min(h,sw/2.6);return{x:.05*w,y:(h-sh)/2,w:sw,h:sh}};
-// procura os rolos vermelhos dentro de sr e devolve o rectângulo da fila de dígitos, ou null
-const lc=document.createElement('canvas'),lctx=lc.getContext('2d',{willReadFrequently:true});
-function runs(v,thr,gap){const out=[];let s=-1,last=-1;
-  for(let i=0;i<v.length;i++)if(v[i]>thr){if(s<0)s=i;else if(i-last-1>gap){out.push([s,last+1]);s=i}last=i}
-  if(s>=0)out.push([s,last+1]);return out}
-function bestRun(rs,v){let b=null,bs=-1;for(const r of rs){let t=0;for(let i=r[0];i<r[1];i++)t+=v[i];if(t>bs){bs=t;b=r}}return b}
-function locate(src,sr){
-  const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec);if(!dec)return null;
-  const k=Math.min(1,480/sr.w),W=Math.max(8,Math.round(sr.w*k)),H=Math.max(4,Math.round(sr.h*k));
-  lc.width=W;lc.height=H;lctx.drawImage(src,sr.x,sr.y,sr.w,sr.h,0,0,W,H);
-  const d=lctx.getImageData(0,0,W,H).data,n=W*H,red=new Int16Array(n),hist=new Int32Array(256);
-  for(let i=0;i<n;i++){const v=d[i*4]-Math.max(d[i*4+1],d[i*4+2]);red[i]=v;hist[v<0?0:v]++}
-  let c=0,p99=255;for(;p99>0;p99--){c+=hist[p99];if(c>=n*.005)break}
-  if(p99<8)return null;
-  const thr=Math.max(6,.45*p99),rows=new Int32Array(H);
-  for(let y=0;y<H;y++){let t=0;for(let x=0;x<W;x++)if(red[y*W+x]>thr)t++;rows[y]=t}
-  let mx=0;for(const t of rows)if(t>mx)mx=t;
-  const ry=bestRun(runs(rows,Math.max(2,mx*.35),2),rows);if(!ry)return null;
-  const h=ry[1]-ry[0],cols=new Int32Array(W);
-  for(let x=0;x<W;x++){let t=0;for(let y=ry[0];y<ry[1];y++)if(red[y*W+x]>thr)t++;cols[x]=t}
-  const rx=bestRun(runs(cols,Math.max(1,h*.25),Math.max(2,Math.round(h*.2))),cols);if(!rx)return null;
-  const w=rx[1]-rx[0],ratio=(w/h)/(dec*RR());
-  if(h<6||ratio<.6||ratio>1.7)return null;
-  const p0=w/(dec*RR()),cy=(ry[0]+ry[1])/2;
-  // limites do bloco vermelho: onde a cor muda mais depressa
-  const rp=new Float32Array(W);
-  for(let x=0;x<W;x++){let t=0;for(let y=ry[0];y<ry[1];y++)t+=red[y*W+x];rp[x]=t/h}
-  const edge=(c0,sign)=>{let b=c0,bv=-1e9;const m=Math.max(2,Math.round(.4*p0)),g=Math.max(1,Math.round(.06*p0));
-    for(let x=Math.max(g,c0-m);x<=Math.min(W-1-g,c0+m);x++){const v=sign*(rp[x+g]-rp[x-g]);if(v>bv){bv=v;b=x}}return b};
-  const xb=edge(rx[0],1),xr=edge(rx[1],-1);
-  // largura real de um rolo: periodicidade do brilho ao longo dos rolos pretos
-  let p=p0;
-  {const xa=Math.max(0,Math.round(xb-(blk+.5)*1.3*p0)),L=xb-xa,ya=Math.max(0,Math.round(cy-.35*p0)),yb=Math.min(H,Math.round(cy+.35*p0));
-   if(L>2.2*p0&&yb>ya){
-    const pr=new Float32Array(L),hp=new Float32Array(L);
-    for(let x=0;x<L;x++){let t=0;for(let y=ya;y<yb;y++){const i=(y*W+xa+x)*4;t+=.3*d[i]+.59*d[i+1]+.11*d[i+2]}pr[x]=t/(yb-ya)}
-    const kw=Math.max(3,Math.round(p0)|1),hw=kw>>1;
-    for(let x=0;x<L;x++){let t=0,c2=0;for(let j=x-hw;j<=x+hw;j++)if(j>=0&&j<L){t+=pr[j];c2++}hp[x]=pr[x]-t/c2}
-    const ac=lag=>{let a=0,b=0,c2=0;for(let x=0;x+lag<L;x++){a+=hp[x]*hp[x+lag];b+=hp[x]*hp[x];c2+=hp[x+lag]*hp[x+lag]}return a/Math.sqrt(b*c2+1e-9)};
-    let bl=0,bc=-1;const l0=Math.max(2,Math.round(.85*p0)),l1=Math.min(L-Math.round(p0),Math.round(1.5*p0));
-    for(let lag=l0;lag<=l1;lag++){const c2=ac(lag);if(c2>bc){bc=c2;bl=lag}}
-    if(bc>.2&&bl>l0&&bl<l1){const a=ac(bl-1),b=bc,c2=ac(bl+1),den=a-2*b+c2;p=bl+(den<0?.5*(a-c2)/den:0)}
-   }}
-  // o bloco vermelho começa um pouco depois do fim do último rolo preto (aro entre rolos)
-  const xk=xb-.09*p;
-  const r={x:sr.x+(xk-blk*p)/k,y:sr.y+(cy-p/2)/k,w:(blk*p+xr-xk)/k,h:p/k,p:p/k,rp:(xr-xb)/dec/k,rx:sr.x+xb/k};
-  return r.x<sr.x-.02*sr.w?null:r;
+// manchas vermelhas candidatas (componentes ligados, depois de fechar buracos pequenos)
+function redBlob(P){
+  const {W,H,red}=P,n=W*H;const s=Float32Array.from(red).sort();const p995=s[Math.floor(n*.995)];
+  if(p995<10)return [];
+  const th=Math.max(8,.5*p995),m=new Uint8Array(n);
+  for(let i=0;i<n;i++)if(red[i]>th)m[i]=1;
+  // dilatação 1 px para juntar os dois rolos
+  const md=new Uint8Array(n);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){if(!m[y*W+x])continue;for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){const yy=y+dy,xx=x+dx;if(yy>=0&&yy<H&&xx>=0&&xx<W)md[yy*W+xx]=1}}
+  const lab=new Int32Array(n).fill(-1);const cands=[];
+  const st=[];
+  for(let i=0;i<n;i++){if(!md[i]||lab[i]>=0)continue;
+    let cnt=0,sx=0,sy=0,sxx=0,syy=0,sxy=0,real=0;st.push(i);lab[i]=i;
+    while(st.length){const j=st.pop(),x=j%W,y=(j/W)|0;
+      if(m[j]){real++;sx+=x;sy+=y;sxx+=x*x;syy+=y*y;sxy+=x*y}cnt++;
+      if(x>0&&md[j-1]&&lab[j-1]<0){lab[j-1]=i;st.push(j-1)}
+      if(x<W-1&&md[j+1]&&lab[j+1]<0){lab[j+1]=i;st.push(j+1)}
+      if(y>0&&md[j-W]&&lab[j-W]<0){lab[j-W]=i;st.push(j-W)}
+      if(y<H-1&&md[j+W]&&lab[j+W]<0){lab[j+W]=i;st.push(j+W)}}
+    if(real>=20){const cx=sx/real,cy=sy/real;cands.push({n:real,cx,cy,id:i,mask:m,lab})}
+  }
+  cands.sort((a,b)=>b.n-a.n);return cands.slice(0,5);
 }
-function drawOverlay(w,h,r,found){
+function sampleL(P,x,y){const {W,H,lum}=P;if(x<0||y<0||x>W-1||y>H-1)return NaN;const x0=x|0,y0=y|0,x1=Math.min(W-1,x0+1),y1=Math.min(H-1,y0+1),fx=x-x0,fy=y-y0;
+  return lum[y0*W+x0]*(1-fx)*(1-fy)+lum[y0*W+x1]*fx*(1-fy)+lum[y1*W+x0]*(1-fx)*fy+lum[y1*W+x1]*fx*fy}
+// para um ângulo: extensão da mancha ao longo da fila, passo e contraste da faixa preta à esquerda
+function bandAt(P,B,th){
+  const c=Math.cos(th),s=Math.sin(th),{W,H}=P;let umin=1e9,umax=-1e9,vmin=1e9,vmax=-1e9;const us=[],vs=[];
+  for(let j=0;j<W*H;j++){if(!B.mask[j]||B.lab[j]!==B.id)continue;const x=j%W-B.cx,y=((j/W)|0)-B.cy,u=x*c+y*s,v=-x*s+y*c;us.push(u);vs.push(v)}
+  us.sort((a,b)=>a-b);vs.sort((a,b)=>a-b);const q=(a,f)=>a[Math.floor(f*(a.length-1))];
+  umin=q(us,.03);umax=q(us,.97);vmin=q(vs,.03);vmax=q(vs,.97);
+  const p=(umax-umin)/(2*RR()),hh=vmax-vmin,vc=(vmin+vmax)/2;
+  if(!(p>3))return null;
+  const pt=(u,v)=>sampleL(P,B.cx+u*c-v*s,B.cy+u*s+v*c);
+  let band=0,nb=0,out=0,no=0;
+  for(let a=0;a<40;a++){const u=umin-(.15+3.7*a/39)*p;
+    for(let b=0;b<7;b++){const v=vc+(-.3+.6*b/6)*hh;const L=pt(u,v);if(!isNaN(L)){band+=L;nb++}}
+    for(const f of [-.95,-.8,.8,.95]){const L=pt(u,vc+f*hh);if(!isNaN(L)){out+=L;no++}}}
+  if(nb<100||no<40)return null;
+  // fim da faixa preta: anda para a esquerda até o contraste com o mostrador desaparecer
+  const col=u=>{let bd=0,n1=0,ou=0,n2=0;for(let b=0;b<7;b++){const L=pt(u,vc+(-.3+.6*b/6)*hh);if(!isNaN(L)){bd+=L;n1++}}
+    for(const f of [-.95,-.8,.8,.95]){const L=pt(u,vc+f*hh);if(!isNaN(L)){ou+=L;n2++}}return n1&&n2?ou/n2-bd/n1:NaN};
+  let c0=0,k0=0;for(let t=.3;t<=2;t+=.1){const v=col(umin-t*p);if(!isNaN(v)){c0+=v;k0++}}c0=k0?c0/k0:0;
+  let uend=null,low=0;
+  for(let t=.3;t<=8;t+=.05){const v=col(umin-t*p);if(isNaN(v)||v<.4*c0){if(++low>=4){uend=umin-(t-.15)*p;break}}else low=0}
+  const pb=uend!=null?(umin-uend)/Math.max(1,S.blk):null;
+  return{th,p,pb,hh,vc,umin,umax,score:out/no-band/nb};
+}
+// devolve até K geometrias possíveis, da mais provável para a menos provável
+function locateAll(src,sr,K){
+  const P=regionPixels(src,sr,420),C=redBlob(P),found=[];
+  for(const cand of C){let bb=null;
+    for(let d=-45;d<=45;d+=3){const r=bandAt(P,cand,d*Math.PI/180);if(r&&r.pb&&(!bb||r.score>bb.score))bb=r}
+    if(bb)found.push([bb,cand])}
+  found.sort((a,b)=>b[0].score-a[0].score);
+  return found.slice(0,K).map(([b,c])=>refineGeom(P,sr,c,b));
+}
+function locate2(src,sr){return locateAll(src,sr,1)[0]||null}
+function refineGeom(P,sr,B,best){
+  for(let d=-2.5;d<=2.5;d+=.5){const r=bandAt(P,B,best.th+d*Math.PI/180);if(r&&r.score>best.score)best=r}
+  // afina ângulo, centro e altura pelas arestas de cima e de baixo da faixa escura
+  for(let pass=0;pass<2;pass++){
+    const c=Math.cos(best.th),s=Math.sin(best.th),p=best.pb||best.p*1.2,hh=best.hh,vc=best.vc;
+    const pt=(u,v)=>sampleL(P,B.cx+u*c-v*s,B.cy+u*s+v*c);
+    const tops=[],bots=[];
+    for(let a=0;a<14;a++){const u0=best.umin-(.25+3.5*a/13)*p;
+      const prof=[];const N=60,v0=vc-1.4*hh,v1=vc+1.4*hh;
+      for(let k=0;k<=N;k++){const v=v0+(v1-v0)*k/N;let t=0,m=0;for(let du=-.2;du<=.2;du+=.1){const L=pt(u0+du*p,v);if(!isNaN(L)){t+=L;m++}}prof.push(m?t/m:NaN)}
+      let bt=0,bk=-1,bb=0,bkb=-1;
+      for(let k=1;k<N;k++){const g=prof[k-1]-prof[k+1];if(isNaN(g))continue;const v=v0+(v1-v0)*k/N;
+        if(v<vc-.15*hh&&g>bt){bt=g;bk=v}if(v>vc+.15*hh&&-g>bb){bb=-g;bkb=v}}
+      if(bk>-1e8&&bt>4)tops.push([u0,bk]);if(bkb>-1e8&&bb>4)bots.push([u0,bkb]);
+    }
+    const fit=pts=>{if(pts.length<5)return null;const sl=[];for(let i=0;i<pts.length;i++)for(let j=i+1;j<pts.length;j++){const d=pts[j][0]-pts[i][0];if(Math.abs(d)>.8*p)sl.push((pts[j][1]-pts[i][1])/d)}
+      if(!sl.length)return null;sl.sort((a,b)=>a-b);const m=sl[sl.length>>1];const ic=pts.map(q=>q[1]-m*q[0]).sort((a,b)=>a-b);return{m,b:ic[ic.length>>1]}};
+    const T=fit(tops),Bo=fit(bots);
+    if(!T||!Bo)break;
+    const m=(T.m+Bo.m)/2,uref=best.umin;const vt=T.b+T.m*uref,vb=Bo.b+Bo.m*uref;
+    if(!(vb-vt>.3*hh&&vb-vt<3*hh))break;
+    const r=bandAt(P,B,best.th+Math.atan(m));if(!r)break;
+    r.vc=(vt+vb)/2;r.hh=vb-vt;best=r;
+  }
+  // geometria em coordenadas da imagem
+  const k=P.k,c=Math.cos(best.th),s=Math.sin(best.th);
+  const ox=sr.x+B.cx/k,oy=sr.y+B.cy/k;
+  const pp=best.pb&&best.pb>.8*best.p&&best.pb<2*best.p?best.pb:best.p*1.2;
+  return{ang:best.th,p:pp/k,pr:best.p/k,q:(best.umax-best.umin)/2/k,
+         // centro do bloco vermelho (u=0 corresponde ao centróide; ajusta para o meio da extensão)
+         ux:(best.umin)/k, vc:best.vc/k, ox,oy, c,s, score:best.score};
+}
+// centros dos dígitos em coordenadas da imagem
+function geomCenters(G,du=0){
+  const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec),p=G.p,q=G.q,gap=.09*p,pts=[],u0=G.ux+du*p;
+  for(let i=0;i<blk;i++)pts.push(u0-gap-(blk-i-.5)*p);
+  for(let j=0;j<dec;j++)pts.push(u0+(j+.5)*q);
+  return pts.map(u=>({x:G.ox+u*G.c-G.vc*G.s,y:G.oy+u*G.s+G.vc*G.c}));
+}
+// cantos da janela (para desenhar a grelha)
+function geomFrame(G){
+  // na grelha desenhada os rolos vermelhos têm a largura configurada (a leitura usa a medida)
+  const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec),p=G.p,q=Math.max(G.q,RR()*p),gap=.09*p,uL=G.ux-gap-blk*p,uR=G.ux+dec*q,h=.62*p;
+  const P=(u,v)=>({x:G.ox+u*G.c-(G.vc+v)*G.s,y:G.oy+u*G.s+(G.vc+v)*G.c});
+  const div=[];for(let i=1;i<blk;i++)div.push(uL+i*p);div.push(G.ux-gap/2);for(let j=1;j<dec;j++)div.push(G.ux+j*q);
+  return{box:[P(uL,-h),P(uR,-h),P(uR,h),P(uL,h)],lines:div.map(u=>[P(u,-h),P(u,h)])};
+}
+function strokeFrame(c,G,ok,lw){
+  const f=geomFrame(G);c.lineWidth=lw;c.strokeStyle=ok?'#3ddc84':'rgba(255,255,255,.75)';
+  c.beginPath();f.box.forEach((q,i)=>i?c.lineTo(q.x,q.y):c.moveTo(q.x,q.y));c.closePath();
+  f.lines.forEach(l=>{c.moveTo(l[0].x,l[0].y);c.lineTo(l[1].x,l[1].y)});c.stroke();
+}
+// desenha a grelha no vídeo; T={x,y,k} converte coordenadas da faixa capturada em coordenadas do vídeo
+function drawOverlay(w,h,G,ok,T){
   const o=$('ov');if(o.width!==w||o.height!==h){o.width=w;o.height=h}
-  const c=o.getContext('2d');c.clearRect(0,0,w,h);if(!r)return;
-  const g=centers(r);c.lineWidth=Math.max(2,w/320);c.strokeStyle=found?'#00e676':'rgba(255,255,255,.7)';
-  c.strokeRect(r.x,r.y,r.w,r.h);c.beginPath();
-  for(let i=1;i<g.cx.length;i++){const x=i<=g.blk?r.x+g.p*i:(r.rx||r.x+g.p*g.blk)+(r.rp||RR()*g.p)*(i-g.blk);c.moveTo(x,r.y);c.lineTo(x,r.y+r.h)}
-  c.stroke();
+  const c=o.getContext('2d');c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,w,h);if(!G)return;
+  c.setTransform(1/T.k,0,0,1/T.k,T.x,T.y);strokeFrame(c,G,ok,Math.max(3,w/260)*T.k);c.setTransform(1,0,0,1,0,0);
 }
+// copia só a faixa visível do vídeo para um canvas fixo (a leitura de uma imagem não mistura frames)
+const snapC=document.createElement('canvas'),snapX=snapC.getContext('2d',{willReadFrequently:true});
+function snapStrip(v,vis){const k=Math.min(1,1400/vis.w);snapC.width=Math.round(vis.w*k);snapC.height=Math.round(vis.h*k);
+  snapX.drawImage(v,vis.x,vis.y,vis.w,vis.h,0,0,snapC.width,snapC.height);return k}
 
 /* ---------- modelo de dígitos de contador (AI-on-the-edge-device, dig-class100) ---------- */
 let net=null,netErr=false;
@@ -533,84 +596,68 @@ async function loadNet(){
       for(let i=0;i<c.n;i++){const k=ns>1?Math.floor(i/per):0;f[i]=(a[i]-c.zp[ns>1?k:0])*c.scale[k]}
       return f;
     };
-    for(const L of m.layers){if(L.c)L.cf=deq(L.c);if(L.w){L.wf=deq(L.w);L.bf=deq(L.b)}}
+    for(const L of m.layers){if(L.c)L.cf=deq(L.c);if(L.w){L.wf=deq(L.w);L.bf=deq(L.b)}
+      // pesos da convolução reorganizados para o ciclo interior percorrer as saídas
+      if(L.op==='CONV_2D'){const [O,,,C]=L.w.shape,W=L.wf,wt=new Float32Array(W.length);
+        for(let o=0;o<O;o++)for(let k=0;k<9;k++)for(let i=0;i<C;i++)wt[(k*C+i)*O+o]=W[(o*9+k)*C+i];L.wt=wt}}
     net=m;
   }catch(e){netErr=true}
   return net;
 }
-// x: Float32Array HWC com valores 0..255; devolve a classe 0..99 (dígito × 10)
-function forward(x,h,w,c){
-  const Ls=net.layers;
-  for(let li=0;li<Ls.length;li++){
-    const L=Ls[li],lo=L.range[0],hi=L.range[1];let y=x;
-    if(L.op==='MUL'||L.op==='ADD'){
-      const k=L.cf,mul=L.op==='MUL';y=new Float32Array(x.length);
-      for(let i=0;i<x.length;i++)y[i]=mul?x[i]*k[i%c]:x[i]+k[i%c];
-    }else if(L.op==='CONV_2D'){
-      const O=L.w.shape[0],W=L.wf,B=L.bf;y=new Float32Array(h*w*O);
-      for(let yy=0;yy<h;yy++)for(let xx=0;xx<w;xx++){
-        const ob=(yy*w+xx)*O;
-        for(let o=0;o<O;o++){
-          let s=B[o];
-          for(let ky=0;ky<3;ky++){const sy=yy+ky-1;if(sy<0||sy>=h)continue;
-            for(let kx=0;kx<3;kx++){const sx=xx+kx-1;if(sx<0||sx>=w)continue;
-              const ib=(sy*w+sx)*c,wb=((o*3+ky)*3+kx)*c;
-              for(let i=0;i<c;i++)s+=x[ib+i]*W[wb+i];
-            }}
-          y[ob+o]=s>0?s:0;
-        }
-      }
-      c=O;
-    }else if(L.op==='MAX_POOL_2D'){
-      const H2=h>>1,W2=w>>1;y=new Float32Array(H2*W2*c);
-      for(let yy=0;yy<H2;yy++)for(let xx=0;xx<W2;xx++)for(let i=0;i<c;i++){
-        const a=(2*yy*w+2*xx)*c+i,b=a+c,d=a+w*c,e=d+c;
-        y[(yy*W2+xx)*c+i]=Math.max(x[a],x[b],x[d],x[e]);
-      }
-      h=H2;w=W2;
-    }else if(L.op==='FULLY_CONNECTED'){
-      const O=L.w.shape[0],I=L.w.shape[1],W=L.wf,B=L.bf,last=li===Ls.length-1;y=new Float32Array(O);
-      for(let o=0;o<O;o++){let s=B[o];const wb=o*I;for(let i=0;i<I;i++)s+=x[i]*W[wb+i];y[o]=last?s:(s>0?s:0)}
-      h=1;w=1;c=O;
-    }
-    for(let i=0;i<y.length;i++)y[i]=y[i]<lo?lo:y[i]>hi?hi:y[i];
-    x=y;
-  }
-  let best=0;for(let i=1;i<x.length;i++)if(x[i]>x[best])best=i;
-  return best;
-}
+// x: Float32Array 32×20×3 com valores 0..255; devolve as 100 saídas (dígito × 10 + fracção)
+function forward(x){let h=32,w=20,c=3;const Ls=net.layers;
+  for(let li=0;li<Ls.length;li++){const L=Ls[li],lo=L.range[0],hi=L.range[1];let y;
+    if(L.op==='MUL'||L.op==='ADD'){const k=L.cf,mul=L.op==='MUL',n=x.length;y=new Float32Array(n);
+      for(let i=0;i<n;i+=c)for(let j=0;j<c;j++){const v=mul?x[i+j]*k[j]:x[i+j]+k[j];y[i+j]=v<lo?lo:v>hi?hi:v}}
+    else if(L.op==='CONV_2D'){const O=L.w.shape[0],Wt=L.wt,B=L.bf,pw=w+2;
+      const pad=new Float32Array((h+2)*pw*c);for(let yy=0;yy<h;yy++)pad.set(x.subarray(yy*w*c,(yy+1)*w*c),((yy+1)*pw+1)*c);
+      y=new Float32Array(h*w*O);const acc=new Float32Array(O);
+      for(let yy=0;yy<h;yy++)for(let xx=0;xx<w;xx++){acc.set(B);
+        for(let ky=0;ky<3;ky++)for(let kx=0;kx<3;kx++){const ib=((yy+ky)*pw+xx+kx)*c,wb=(ky*3+kx)*c*O;
+          for(let i=0;i<c;i++){const v=pad[ib+i];if(v===0)continue;const wo=wb+i*O;for(let o=0;o<O;o++)acc[o]+=v*Wt[wo+o]}}
+        const ob=(yy*w+xx)*O;for(let o=0;o<O;o++){let v=acc[o];v=v>0?v:0;y[ob+o]=v>hi?hi:v<lo?lo:v}}
+      c=O}
+    else if(L.op==='MAX_POOL_2D'){const H2=h>>1,W2=w>>1;y=new Float32Array(H2*W2*c);
+      for(let yy=0;yy<H2;yy++)for(let xx=0;xx<W2;xx++)for(let i=0;i<c;i++){const a=(2*yy*w+2*xx)*c+i,b=a+c,d=a+w*c,e=d+c;const v=Math.max(x[a],x[b],x[d],x[e]);y[(yy*W2+xx)*c+i]=v<lo?lo:v>hi?hi:v}h=H2;w=W2}
+    else if(L.op==='FULLY_CONNECTED'){const O=L.w.shape[0],I=L.w.shape[1],W=L.wf,B=L.bf,last=li===Ls.length-1;y=new Float32Array(O);
+      for(let o=0;o<O;o++){let s=B[o];const wb=o*I;for(let i=0;i<I;i++){const v=x[i];if(v!==0)s+=v*W[wb+i]}if(!last&&s<0)s=0;y[o]=s<lo?lo:s>hi?hi:s}h=1;w=1;c=O}
+    x=y}
+  return x}
+// recorta um dígito já endireitado, estica o contraste e classifica
 const tile=document.createElement('canvas');tile.width=20;tile.height=32;
 const tctx=tile.getContext('2d',{willReadFrequently:true});tctx.imageSmoothingQuality='high';
-function classify(src,cx,cy,p){
-  const w=.68*p,h=1.12*p;
-  tctx.fillStyle='#000';tctx.fillRect(0,0,20,32);
-  tctx.drawImage(src,cx-w/2,cy-h/2,w,h,0,0,20,32);
-  const d=tctx.getImageData(0,0,20,32).data,x=new Float32Array(1920);
-  for(let i=0,j=0;i<d.length;i+=4){x[j++]=d[i];x[j++]=d[i+1];x[j++]=d[i+2]}
-  return forward(x,32,20,3);
+function drawTile(c,cw,ch,src,x,y,p,ang,a,b){
+  const w=a*p,h=b*p;c.setTransform(1,0,0,1,0,0);c.fillStyle='#000';c.fillRect(0,0,cw,ch);
+  c.setTransform(cw/w,0,0,ch/h,cw/2,ch/2);c.rotate(-ang);c.translate(-x,-y);c.drawImage(src,0,0);c.setTransform(1,0,0,1,0,0);
 }
-const OFFS=[-.1,0,.1];
-// devolve, para cada dígito, os votos (0..9) das três posições vizinhas
-function readDigits(src,r){
-  const g=centers(r),n=g.cx.length,votes=[];
-  for(let i=0;i<n;i++){
-    const last=g.dec>0&&i===n-1,v=[];
-    for(const o of OFFS){const k=classify(src,g.cx[i]+o*g.p,g.cy,g.p);v.push(last?Math.floor(k/10):Math.round(k/10)%10)}
-    votes.push(v);
-  }
-  return{votes,g};
+function classify(src,x,y,p,ang,a,b){
+  drawTile(tctx,20,32,src,x,y,p,ang,a,b);
+  const d=tctx.getImageData(0,0,20,32).data,X=new Float32Array(1920),L=new Float32Array(640);
+  for(let i=0,j=0;i<640;i++,j+=3){X[j]=d[i*4];X[j+1]=d[i*4+1];X[j+2]=d[i*4+2];L[i]=.3*X[j]+.59*X[j+1]+.11*X[j+2]}
+  let lo=255,hi=0;for(const v of L){if(v<lo)lo=v;if(v>hi)hi=v}
+  const k=255/Math.max(8,hi-lo);for(let i=0;i<1920;i++){const v=(X[i]-lo)*k;X[i]=v<0?0:v>255?255:v}
+  const z=forward(X);let best=0;for(let i=1;i<100;i++)if(z[i]>z[best])best=i;return best;
+}
+// seis leituras por dígito (três posições × dois tamanhos de recorte) e votação
+const ENS=[[-.1,.74,1.2],[0,.74,1.2],[.1,.74,1.2],[-.1,.8,1.3],[0,.8,1.3],[.1,.8,1.3]];
+function readDigits(src,G){
+  const blk=Math.max(1,S.blk),dec=Math.max(0,S.dec),n=blk+dec,V=[];for(let i=0;i<n;i++)V.push([]);
+  for(const [du,a,b] of ENS){geomCenters(G,du).forEach((pt,i)=>{
+    const k=classify(src,pt.x,pt.y,i>=blk?G.q/RR():G.p,G.ang,a,b),last=dec>0&&i===n-1;
+    V[i].push(last?Math.floor(k/10):Math.round(k/10)%10)})}
+  const ms=V.map(mode),need=blk+(dec?1:0);
+  return{digs:ms.map(m=>m.v),key:ms.slice(0,need).map(m=>m.v).join(''),agree:Math.min(...ms.slice(0,need).map(m=>m.n)),tot:ms.slice(0,need).reduce((t,m)=>t+m.n,0),blk,dec};
 }
 function mode(a){const c={};let b=a[0],n=0;for(const v of a){c[v]=(c[v]||0)+1;if(c[v]>n){n=c[v];b=v}}return{v:b,n}}
-function showTiles(src,r){
-  const g=centers(r),w=.68*g.p,h=1.12*g.p,pv=$('prev');pv.innerHTML='';
-  g.cx.forEach(cx=>{const c=document.createElement('canvas');c.width=40;c.height=64;
-    c.getContext('2d').drawImage(src,cx-w/2,g.cy-h/2,w,h,0,0,40,64);
-    c.className='tile';pv.appendChild(c)});
+function showTiles(src,G){
+  const pv=$('prev');pv.innerHTML='';const blk=Math.max(1,S.blk);
+  geomCenters(G,0).forEach((pt,i)=>{const c=document.createElement('canvas');c.width=40;c.height=64;
+    drawTile(c.getContext('2d'),40,64,src,pt.x,pt.y,i>=blk?G.q/RR():G.p,G.ang,.74,1.2);c.className='tile';pv.appendChild(c)});
 }
 function fmt(d,blk,dec){return d.slice(0,blk).join('')+(dec?','+d.slice(blk).join(''):'')}
-function accept(digs,g,how,doubt){
-  const txt=fmt(digs,g.blk,g.dec);
-  showTiles(bmp,rect);$('tileBox').classList.remove('hide');
+function accept(digs,G,how,doubt){
+  const txt=fmt(digs,Math.max(1,S.blk),Math.max(0,S.dec));
+  showTiles(bmp,G);$('tileBox').classList.remove('hide');
   $('val').value=txt;update();
   $('readMsg').textContent=how+(doubt?' Alguns dígitos ficaram duvidosos: confirma-os.':'');
   go('confirm');
@@ -618,48 +665,52 @@ function accept(digs,g,how,doubt){
 }
 $('ocr').onclick=async()=>{
   if(!bmp)return;
-  if(!rect||rect.w<cv.width*.15||rect.h<cv.height*.02){$('status').textContent='A marca verde está pequena demais ou fora dos dígitos. Arrasta na foto, do primeiro dígito ao último.';return}
-  readCfg();$('ocr').disabled=true;$('status').textContent='';
+  readCfg();$('ocr').disabled=true;$('status').textContent='A ler…';
+  await new Promise(r=>setTimeout(r,30));
   if(!await loadNet()){$('status').textContent='Não foi possível carregar o leitor de dígitos. Verifica a internet ou escreve a leitura à mão.';$('ocr').disabled=false;return}
-  {const e=.15,sr={x:Math.max(0,rect.x-e*rect.w),y:Math.max(0,rect.y-rect.h),w:rect.w*(1+2*e),h:rect.h*3};
-   sr.w=Math.min(sr.w,cv.width-sr.x);sr.h=Math.min(sr.h,cv.height-sr.y);
-   const f=locate(bmp,sr);if(f){rect=f;draw()}}
-  const res=readDigits(bmp,rect),ms=res.votes.map(mode);
-  $('ocr').disabled=false;
-  accept(ms.map(m=>m.v),res.g,'Lido da foto.',!ms.every(m=>m.n>=2));
+  let sr={x:0,y:0,w:cv.width,h:cv.height};
+  if(rect&&rect.w>cv.width*.08&&rect.h>4){const e=.15;sr={x:Math.max(0,rect.x-e*rect.w),y:Math.max(0,rect.y-rect.h),w:rect.w*(1+2*e),h:rect.h*3};
+    sr.w=Math.min(sr.w,cv.width-sr.x);sr.h=Math.min(sr.h,cv.height-sr.y)}
+  // lê as posições mais prováveis e pesa o contraste da faixa pela concordância entre recortes
+  let G=null,r=null,bs=0;
+  for(const g of locateAll(bmp,sr,3)){if(g.score<=0)continue;const x=readDigits(bmp,g),v=g.score*x.agree;if(v>bs){bs=v;r=x;G=g}}
+  if(!G){$('status').textContent='Não encontrei os rolos vermelhos. Arrasta na foto à volta da fila de dígitos e toca outra vez em Ler dígitos, ou escreve a leitura à mão.';$('ocr').disabled=false;return}
+  $('ocr').disabled=false;$('status').textContent='';
+  accept(r.digs,G,'Lido da foto.',r.agree<4);
 };
 
-/* ---------- leitura ao vivo: junta os votos de várias imagens; cada dígito fica marcado quando está seguro ---------- */
+/* ---------- leitura ao vivo: cada imagem dá uma leitura; fixa quando a mesma aparece 3 vezes ---------- */
+const LOCK=3;
 async function liveLoop(my){
-  const out=$('liveTxt'),bar=$('liveBar');
-  {const d=[];for(let i=0;i<Math.max(1,S.blk)+Math.max(0,S.dec);i++)d.push('');$('liveRolls').innerHTML=rollsHTML(d);bar.style.width='0'}
+  const out=$('liveTxt'),bar=$('liveBar'),n=Math.max(1,S.blk)+Math.max(0,S.dec);
+  {const d=[];for(let i=0;i<n;i++)d.push('');$('liveRolls').innerHTML=rollsHTML(d);bar.style.width='0'}
   out.textContent='A preparar o leitor…';
   if(!await loadNet()){out.textContent='Leitor indisponível. Tira uma foto manual.';return}
-  const v=$('vid');let hist=null,frames=0;
+  const v=$('vid'),win=[],lastDig={};
   while(stream===my){
     const w=v.videoWidth,h=v.videoHeight;
     if(w&&h){
-      const vis=visRect(w,h),sr={x:vis.x+.02*vis.w,y:vis.y+.03*vis.h,w:.96*vis.w,h:.94*vis.h};
-      const f=locate(v,sr),gw=.86*vis.w,gh=Math.min(.8*vis.h,gw/units());
-      const r=f||{x:vis.x+(vis.w-gw)/2,y:vis.y+(vis.h-gh)/2,w:gw,h:gh};
-      const res=readDigits(v,r),n=res.votes.length;
-      liveRect=r;drawOverlay(w,h,r,!!f);
-      if(!hist||hist.length!==n){hist=res.votes.map(()=>[]);frames=0}
-      res.votes.forEach((vt,i)=>{hist[i].push(...vt);if(hist[i].length>15)hist[i].splice(0,hist[i].length-15)});
-      frames++;
-      // o último vermelho está sempre a rodar: não entra na decisão
-      const ms=hist.map(mode),need=res.g.dec>1?n-1:n;
-      const ok=ms.map((m,i)=>hist[i].length>=15&&m.n>=10),k=ok.slice(0,need).filter(Boolean).length;
-      $('liveRolls').innerHTML=rollsHTML(ms.map(m=>m.v),ok.map((o,i)=>o||i>=need?'lock':'seek'));
-      bar.style.width=(100*k/need)+'%';
-      out.textContent=f?k+' de '+need+' dígitos seguros':'À procura dos rolos vermelhos…';
-      if(frames>=5&&k===need){
-        const c=grabFrame();bmp=c;rect=r;stopCam();
-        accept(ms.map(m=>m.v),res.g,'Lido pela câmara.',false);
-        return;
-      }
+      const vis=visRect(w,h),k=snapStrip(v,vis),W=snapC.width,H=snapC.height;
+      const G=locate2(snapC,{x:.02*W,y:.03*H,w:.96*W,h:.94*H});let r=null;
+      if(G&&G.score>=40)r=readDigits(snapC,G);
+      const ok=!!(r&&r.agree>=4);
+      if(stream!==my)return;
+      drawOverlay(w,h,G,ok,{x:vis.x,y:vis.y,k});
+      if(ok){win.push(r.key);if(win.length>12)win.shift();(lastDig[r.key]=lastDig[r.key]||[]).push(r.digs[n-1])}
+      const c={};for(const s of win)c[s]=(c[s]||0)+1;const top=Object.entries(c).sort((x,y)=>y[1]-x[1]);
+      if(top.length){
+        const [key,cnt]=top[0],digs=key.split('');while(digs.length<n)digs.push(n>key.length?mode(lastDig[key]).v:'');
+        $('liveRolls').innerHTML=rollsHTML(digs,digs.map(()=>cnt>=LOCK?'lock':'seek'));
+        bar.style.width=(100*Math.min(cnt,LOCK)/LOCK)+'%';
+        out.textContent=cnt+' de '+LOCK+' leituras iguais';
+        if(ok&&cnt>=LOCK&&(top.length<2||top[1][1]<=cnt-2)){
+          const fr=document.createElement('canvas');fr.width=W;fr.height=H;fr.getContext('2d').drawImage(snapC,0,0);bmp=fr;rect=null;stopCam();
+          accept(digs,G,'Lido pela câmara.',false);
+          return;
+        }
+      }else out.textContent=!G?'À procura dos rolos vermelhos…':'Aproxima ou endireita um pouco o telemóvel';
     }
-    await new Promise(r=>setTimeout(r,60));
+    await new Promise(r=>setTimeout(r,40));
   }
 }
 
