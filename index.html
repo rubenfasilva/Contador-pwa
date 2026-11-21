@@ -175,9 +175,11 @@
   <div id="scanHome">
     <input type="file" id="file" accept="image/*" capture="environment" class="hide">
     <input type="file" id="file2" accept="image/*" class="hide">
-    <button class="btn" id="live" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.200" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3M7 12h10"/></svg>Ler com a câmara</button>
-    <button class="btn ghost" id="take2" type="button">Usar uma foto</button>
-    <button class="text" id="manual" type="button">Escrever a leitura à mão</button>
+    <button class="btn" id="take" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.200" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.500" r="3.500"/></svg>Fotografar o contador</button>
+    <button class="btn ghost" id="take2" type="button">Escolher foto da galeria</button>
+    <p class="note">Tira a foto de frente, a uns 20 cm, com os dígitos nítidos. A app encontra e lê os dígitos sozinha.</p>
+    <button class="text" id="live" type="button">Ler ao vivo com a câmara (experimental)</button>
+    <button class="text" id="manual" type="button" style="margin-top:0">Escrever a leitura à mão</button>
     <p class="note" id="camNote"></p>
   </div>
 
@@ -198,10 +200,9 @@
 
   <div id="cropWrap" class="hide">
     <canvas id="cv"></canvas>
-    <p class="note" style="margin:0 0 14px">Toca em Ler dígitos: a app procura a fila sozinha. Se falhar, arrasta na foto à volta dos dígitos e tenta outra vez.</p>
-    <button class="btn" id="ocr" type="button">Ler dígitos</button>
-    <button class="btn ghost" id="cropClose" type="button">Voltar</button>
-    <p class="warn" id="status" role="status"></p>
+    <p class="warn" id="status" role="status" style="margin:0 0 14px"></p>
+    <div id="ocrBox" class="hide"><button class="btn" id="ocr" type="button">Ler dígitos</button></div>
+    <button class="btn ghost" id="cropClose" type="button">Tirar outra foto</button>
   </div>
 </section>
 
@@ -379,6 +380,7 @@ $('again').onclick=()=>{$('val').value='';update();go('scan')};
 /* ---------- foto e rectângulo ---------- */
 const cv=$('cv'),ctx=cv.getContext('2d');
 let bmp=null,rect=null,drag=null;
+$('take').onclick=()=>$('file').click();
 $('take2').onclick=()=>$('file2').click();
 $('cropClose').onclick=()=>scanMode('home');
 function showPhoto(src,w,h,r){
@@ -390,6 +392,7 @@ async function onPhoto(e){
   try{b=await createImageBitmap(f,{imageOrientation:'from-image'})}catch(err){
     b=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(f)})}
   readCfg();showPhoto(b,b.width,b.height,null);e.target.value='';
+  autoRead();
 }
 $('file').onchange=onPhoto;$('file2').onchange=onPhoto;
 function draw(){
@@ -452,6 +455,7 @@ $('live').onclick=async()=>{
 $('shoot').onclick=()=>{
   const c=grabFrame();if(!c)return;
   stopCam();showPhoto(c,c.width,c.height,null);
+  autoRead();
 };
 
 /* ---------- localizar a fila de dígitos: procura os rolos vermelhos, a faixa escura à esquerda e a inclinação ---------- */
@@ -663,9 +667,11 @@ function accept(digs,G,how,doubt){
   go('confirm');
   const r=$('rolls');r.classList.remove('pop');void r.offsetWidth;r.classList.add('pop');
 }
+// lê a foto sozinha logo que chega; só pede ajuda se não encontrar os dígitos
+function autoRead(){$('ocrBox').classList.add('hide');$('status').classList.remove('warn');$('status').classList.add('note');$('ocr').onclick()}
 $('ocr').onclick=async()=>{
   if(!bmp)return;
-  readCfg();$('ocr').disabled=true;$('status').textContent='A ler…';
+  readCfg();$('ocr').disabled=true;$('status').textContent='A ler os dígitos…';
   await new Promise(r=>setTimeout(r,30));
   if(!await loadNet()){$('status').textContent='Não foi possível carregar o leitor de dígitos. Verifica a internet ou escreve a leitura à mão.';$('ocr').disabled=false;return}
   let sr={x:0,y:0,w:cv.width,h:cv.height};
@@ -674,7 +680,8 @@ $('ocr').onclick=async()=>{
   // lê as posições mais prováveis e pesa o contraste da faixa pela concordância entre recortes
   let G=null,r=null,bs=0;
   for(const g of locateAll(bmp,sr,3)){if(g.score<=0)continue;const x=readDigits(bmp,g),v=g.score*x.agree;if(v>bs){bs=v;r=x;G=g}}
-  if(!G){$('status').textContent='Não encontrei os rolos vermelhos. Arrasta na foto à volta da fila de dígitos e toca outra vez em Ler dígitos, ou escreve a leitura à mão.';$('ocr').disabled=false;return}
+  if(!G){$('status').classList.remove('note');$('status').classList.add('warn');$('ocrBox').classList.remove('hide');
+    $('status').textContent='Não encontrei os dígitos nesta foto. Arrasta na foto à volta da fila de dígitos e toca em Ler dígitos, ou tira outra foto mais de frente.';$('ocr').disabled=false;return}
   $('ocr').disabled=false;$('status').textContent='';
   accept(r.digs,G,'Lido da foto.',r.agree<4);
 };
