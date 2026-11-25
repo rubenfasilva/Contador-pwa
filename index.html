@@ -679,13 +679,16 @@ $('ocr').onclick=async()=>{
     sr.w=Math.min(sr.w,cv.width-sr.x);sr.h=Math.min(sr.h,cv.height-sr.y)}
   // lê as posições mais prováveis e pesa o contraste da faixa pela concordância entre recortes
   let G=null,r=null,bs=0;
-  for(const g of locateAll(bmp,sr,3)){if(g.score<=0)continue;const x=readDigits(bmp,g),v=g.score*x.agree;if(v>bs){bs=v;r=x;G=g}}
+  for(const g of locateAll(bmp,sr,3)){if(g.score<MINSCORE)continue;const x=readDigits(bmp,g);if(x.agree<MINAGREE)continue;const v=g.score*x.agree;if(v>bs){bs=v;r=x;G=g}}
   if(!G){$('status').classList.remove('note');$('status').classList.add('warn');$('ocrBox').classList.remove('hide');
-    $('status').textContent='Não encontrei os dígitos nesta foto. Arrasta na foto à volta da fila de dígitos e toca em Ler dígitos, ou tira outra foto mais de frente.';$('ocr').disabled=false;return}
+    $('status').textContent='Não encontrei uns dígitos que consiga ler com certeza nesta foto. Não vou adivinhar um valor. Arrasta na foto à volta da fila de dígitos e toca em Ler dígitos, tira outra foto mais de frente e com o vidro limpo, ou escreve a leitura à mão.';$('ocr').disabled=false;return}
   $('ocr').disabled=false;$('status').textContent='';
-  accept(r.digs,G,'Lido da foto.',r.agree<4);
+  accept(r.digs,G,'Lido da foto.',r.agree<6);
 };
 
+/* limiares para aceitar uma leitura: abaixo disto a app recusa em vez de inventar um valor.
+   Medidos com uma foto de um quarto (sem contador), que com agree=4 dava leituras falsas. */
+var MINSCORE=40,MINAGREE=5;
 /* ---------- leitura ao vivo: cada imagem dá uma leitura; fixa quando a mesma aparece 3 vezes ---------- */
 const LOCK=3;
 async function liveLoop(my){
@@ -699,8 +702,8 @@ async function liveLoop(my){
     if(w&&h){
       const vis=visRect(w,h),k=snapStrip(v,vis),W=snapC.width,H=snapC.height;
       const G=locate2(snapC,{x:.02*W,y:.03*H,w:.96*W,h:.94*H});let r=null;
-      if(G&&G.score>=40)r=readDigits(snapC,G);
-      const ok=!!(r&&r.agree>=4);
+      if(G&&G.score>=MINSCORE)r=readDigits(snapC,G);
+      const ok=!!(r&&r.agree>=MINAGREE);
       if(stream!==my)return;
       drawOverlay(w,h,G,ok,{x:vis.x,y:vis.y,k});
       if(ok){win.push(r.key);if(win.length>12)win.shift();(lastDig[r.key]=lastDig[r.key]||[]).push(r.digs[n-1])}
